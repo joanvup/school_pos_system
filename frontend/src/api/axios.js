@@ -1,7 +1,11 @@
 import axios from 'axios';
 
+const BASE_URL = import.meta.env.PROD
+    ? window.location.origin  // Toma automáticamente https://pos.colegiobilingue.edu.co
+    : import.meta.env.VITE_API_BASE_URL;
+
 const api = axios.create({
-    baseURL: 'http://127.0.0.1:8000/api/v1', // URL de tu Backend
+    baseURL: `${BASE_URL}/api/v1`,
     headers: {
         'Content-Type': 'application/json',
     },
@@ -30,5 +34,5 @@ api.interceptors.response.use(
         return Promise.reject(error);
     }
 );
-
+export { BASE_URL };
 export default api;

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import api from '../api/axios';
+import api, { BASE_URL } from '../api/axios';
 
 export const useConfigStore = defineStore('config', {
     state: () => ({
@@ -9,7 +9,7 @@ export const useConfigStore = defineStore('config', {
             currency_symbol: '$',
             school_support_email: ''
         },
-        baseUrl: 'http://127.0.0.1:8000'
+        baseUrl: BASE_URL
     }),
     actions: {
         async fetchSettings() {
@@ -17,7 +17,7 @@ export const useConfigStore = defineStore('config', {
                 const { data } = await api.get('/settings/');
                 // Combinar con los valores por defecto
                 this.settings = { ...this.settings, ...data };
-                
+
                 // Cambiar el título de la pestaña del navegador dinámicamente
                 if (this.settings.school_name) {
                     document.title = this.settings.school_name;
@@ -29,8 +29,8 @@ export const useConfigStore = defineStore('config', {
     },
     getters: {
         logoUrl: (state) => {
-            return state.settings.school_logo 
-                ? `${state.baseUrl}${state.settings.school_logo}` 
+            return state.settings.school_logo
+                ? `${state.baseUrl}${state.settings.school_logo}`
                 : null;
         }
     }

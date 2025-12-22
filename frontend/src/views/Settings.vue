@@ -91,8 +91,10 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import api from '../api/axios';
+import { useConfigStore } from '../stores/config';
+const configStore = useConfigStore();
 
-const baseUrl = 'http://127.0.0.1:8000';
+const baseUrl = configStore.baseUrl;
 const loading = ref(false);
 const settings = ref({
     school_name: '',
