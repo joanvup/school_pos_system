@@ -39,7 +39,7 @@ def init_recharge(
     
     tx_res = res.get("transactionResponse", {})
     state = tx_res.get("state") # APPROVED, PENDING, DECLINED, ERROR
-
+    print(state)
     # LÓGICA DE VALIDACIÓN ROBUSTA
     if state == "PENDING" and "extraParameters" in tx_res and "BANK_URL" in tx_res["extraParameters"]:
         # --- EL PAGO FUE ACEPTADO PARA REDIRECCIÓN ---
@@ -62,7 +62,7 @@ def init_recharge(
     else:
         # --- EL PAGO FUE RECHAZADO O HUBO ERROR ---
         response_code = tx_res.get("responseCode", "UNKNOWN_ERROR")
-        
+        print(response_code)
         # Mapeo de errores comunes de PayU para el usuario
         error_msg = {
             "BANK_UNREACHABLE": "El simulador del banco no está disponible. Por favor selecciona 'BANCO UNION COLOMBIANO'.",
