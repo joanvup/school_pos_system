@@ -32,7 +32,7 @@ def init_recharge(
     
     # --- 1. DETECTAR URL DINÁMICA ---
     # Usamos x-forwarded-proto para detectar si es HTTPS detrás de Nginx
-    scheme = request.headers.get("x-forwarded-proto", "http")
+    scheme = request.headers.get("x-forwarded-proto", "https")
     host = request.headers.get("host")
     base_url = f"{scheme}://{host}"
     print(base_url)
