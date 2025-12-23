@@ -45,7 +45,7 @@
             >
                 <!-- Foto o Icono -->
                 <div class="h-24 w-24 rounded-3xl mb-2 flex items-center justify-center text-5xl group-hover:scale-110 transition-transform overflow-hidden bg-gray-50 border border-gray-50">
-                    <img v-if="product.image_url" :src="'http://127.0.0.1:8000' + product.image_url" class="h-full w-full object-cover">
+                    <img v-if="product.image_url" :src="baseUrl + product.image_url" class="h-full w-full object-cover">
                     <span v-else>{{ getCategoryIcon(product.category_rel?.name) }}</span>
                 </div>
 
@@ -208,6 +208,9 @@ import { ref, computed, onMounted, nextTick } from 'vue';
 import api from '../api/axios';
 import { useAuthStore } from '../stores/auth';
 import { formatMoney } from '../utils/formatters';
+const configStore = useConfigStore();
+
+const baseUrl = configStore.baseUrl;
 
 const authStore = useAuthStore();
 const products = ref([]);

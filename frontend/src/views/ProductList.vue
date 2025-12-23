@@ -62,7 +62,7 @@
             <label class="block text-sm font-medium text-gray-700">Foto del Producto</label>
             <div class="mt-1 flex items-center gap-4">
                 <!-- Vista previa si ya tiene imagen -->
-                <img v-if="form.image_url" :src="'http://127.0.0.1:8000' + form.image_url" class="h-16 w-16 object-cover rounded-lg border">
+                <img v-if="form.image_url" :src="baseUrl + form.image_url" class="h-16 w-16 object-cover rounded-lg border">
                 <div v-else class="h-16 w-16 bg-gray-100 rounded-lg flex items-center justify-center text-2xl">📸</div>
         
                 <input type="file" @change="handleImageUpload" accept="image/*" class="text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
@@ -116,6 +116,9 @@
 import { ref, onMounted } from 'vue';
 import api from '../api/axios';
 import { formatMoney } from '../utils/formatters';
+const configStore = useConfigStore();
+
+const baseUrl = configStore.baseUrl;
 
 const products = ref([]);
 const showModal = ref(false);
