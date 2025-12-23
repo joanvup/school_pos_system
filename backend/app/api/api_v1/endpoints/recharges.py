@@ -24,18 +24,25 @@ def get_pse_banks(current_user: User = Depends(deps.get_current_active_user)):
 
 @router.post("/init-payu-pse")
 def init_recharge(
+    request: Request, # Recibir el objeto request
     payload: dict,
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user)
 ):
-    # 1. Buscar tarjeta (Mantener igual...)
+    # 1. Obtener IP real del cliente (detrás de Nginx)
+    client_ip = request.headers.get("X-Real-IP") or request.client.host
+    user_agent = request.headers.get("User-Agent") or "Unknown"
+
+    # 2. Validar tarjeta (Mantener igual...)
     card = db.query(Card).filter(Card.uid == payload['card_uid']).first()
     if not card: raise HTTPException(status_code=404, detail="Tarjeta no existe")
 
-    # 2. Llamar a PayU
+    # 3. Preparar y llamar a PayU
     payload['buyer_email'] = current_user.email
     payload['buyer_name'] = current_user.full_name
-    res, reference = PayUService.init_pse_payment(payload)
+    
+    # Pasamos IP y UserAgent al servicio
+    res, reference = PayUService.init_pse_payment(payload, client_ip, user_agent)
     
     tx_res = res.get("transactionResponse", {})
     state = tx_res.get("state") # APPROVED, PENDING, DECLINED, ERROR
