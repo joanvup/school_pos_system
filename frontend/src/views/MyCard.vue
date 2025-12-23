@@ -194,6 +194,8 @@ import { formatMoney } from '../utils/formatters';
 // 1. IMPORTAR
 import PsePaymentModal from '../components/PsePaymentModal.vue';
 
+const isPseOpen = ref(false); // ¿Está abierto el modal?
+
 // 2. FUNCIÓN SIMPLIFICADA
 const openRecharge = () => {
     isPseOpen.value = true;

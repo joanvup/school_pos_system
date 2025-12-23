@@ -13,7 +13,14 @@ router = APIRouter()
 @router.get("/banks")
 def get_pse_banks(current_user: User = Depends(deps.get_current_active_user)):
     """Retorna la lista de bancos de PayU"""
-    return PayUService.get_banks()
+    banks = PayUService.get_banks()
+    # Si por alguna razón la lista llega vacía, enviamos un error claro
+    if not banks:
+        raise HTTPException(
+            status_code=503, 
+            detail="No se pudo obtener la lista de bancos desde PayU. Verifique su conexión a internet o credenciales."
+        )
+    return banks
 
 @router.post("/init-payu-pse")
 def init_recharge(

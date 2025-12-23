@@ -27,10 +27,39 @@ class PayUService:
                 "paymentCountry": "CO"
             }
         }
-        response = requests.post(settings.PAYU_URL, json=payload)
-        if response.status_code == 200:
-            return response.json().get("banks", [])
-        return []
+        
+        # --- NUEVOS ENCABEZADOS CRÍTICOS ---
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "FastAPI-SchoolPOS-Client/1.0"
+        }
+
+        try:
+            print(f"DEBUG: Conectando a {settings.PAYU_URL}")
+            response = requests.post(
+                settings.PAYU_URL, 
+                json=payload, 
+                headers=headers, 
+                timeout=15
+            )
+            
+            # Si hay error (ej. 403 Forbidden o 404), imprimimos el texto de respuesta
+            if response.status_code != 200:
+                print(f"⚠️ PayU respondió status {response.status_code}: {response.text}")
+                return []
+
+            # Intentamos leer JSON con precaución
+            try:
+                data = response.json()
+                return data.get("banks", [])
+            except ValueError:
+                print(f"❌ Error: PayU no envió un JSON válido. Respuesta recibida: {response.text[:200]}")
+                return []
+
+        except requests.exceptions.RequestException as e:
+            print(f"❌ ERROR DE RED CON PAYU: {e}")
+            return []
 
     @staticmethod
     def init_pse_payment(data: dict):
