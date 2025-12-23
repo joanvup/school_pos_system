@@ -5,7 +5,7 @@ backend/*.pyc
 backend/.env
 
 # Node
-frontend/node_modules/
+cd ..node_modules/
 
 # Media/Uploads (En producción se manejan aparte)
 backend/uploads/*
