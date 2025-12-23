@@ -92,7 +92,7 @@ class PayUService:
                 "order": {
                     "accountId": str(settings.PAYU_ACCOUNT_ID),
                     "referenceCode": reference,
-                    "description": "Recarga saldo SchoolPOS",
+                    "description": "Recarga saldo Cafeteria FCBV",
                     "language": "es",
                     "signature": signature,
                     "notifyUrl": "https://pos.colegiobilingue.edu.co/api/v1/recharges/payu-confirmation",
