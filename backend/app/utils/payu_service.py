@@ -7,16 +7,14 @@ from app.core.config import settings
 class PayUService:
     @staticmethod
     def generate_signature(reference_code, amount, currency="COP"):
-        # PayU pide: ApiKey~merchantId~referenceCode~amount~currency
-        # Formateamos el monto: si es 50000.0 -> "50000", si es 50000.5 -> "50000.5"
+        # PayU Signature: ApiKey~merchantId~referenceCode~amount~currency
+        # El monto en la firma debe ser entero si no tiene decimales
         amount_val = float(amount)
-        if amount_val == int(amount_val):
-            amount_str = str(int(amount_val))
-        else:
-            amount_str = str(amount_val)
-
+        amount_str = str(int(amount_val)) if amount_val == int(amount_val) else str(amount_val)
+        
         raw_str = f"{settings.PAYU_API_KEY}~{settings.PAYU_MERCHANT_ID}~{reference_code}~{amount_str}~{currency}"
         return hashlib.md5(raw_str.encode('utf-8')).hexdigest()
+    
     @staticmethod
     def get_banks():
         """Obtener la lista de bancos habilitados para PSE"""
@@ -69,12 +67,11 @@ class PayUService:
 
     @staticmethod
     def init_pse_payment(data: dict, ip_address: str, user_agent: str):
-        """Enviar solicitud de pago a PayU con datos estrictos"""
         reference = f"RECH-{uuid.uuid4().hex[:10].upper()}"
         signature = PayUService.generate_signature(reference, data['amount'])
         
-        # PayU Sandbox a veces falla si el sessionId no es un hash MD5
-        session_id = hashlib.md5(str(uuid.uuid4()).encode()).hexdigest()
+        # ID de sesión compatible con el formato del ejemplo
+        session_id = uuid.uuid4().hex
 
         payload = {
             "language": "es",
@@ -87,51 +84,65 @@ class PayUService:
                 "order": {
                     "accountId": settings.PAYU_ACCOUNT_ID,
                     "referenceCode": reference,
-                    "description": "Recarga Saldo Escolar",
+                    "description": "Recarga de saldo SchoolPOS",
                     "language": "es",
                     "signature": signature,
                     "notifyUrl": "https://pos.colegiobilingue.edu.co/api/v1/recharges/payu-confirmation",
                     "additionalValues": {
-                        "TX_VALUE": {"value": float(data['amount']), "currency": "COP"}
+                        "TX_VALUE": {"value": float(data['amount']), "currency": "COP"},
+                        "TX_TAX": {"value": 0, "currency": "COP"},
+                        "TX_TAX_RETURN_BASE": {"value": 0, "currency": "COP"}
                     },
                     "buyer": {
-                        "emailAddress": data['buyer_email'],
+                        "merchantBuyerId": str(uuid.uuid4().hex[:5]),
                         "fullName": data['buyer_name'],
+                        "emailAddress": data['buyer_email'],
                         "contactPhone": "3221234567",
-                        "dniNumber": str(data['buyer_dni']) # Forzar String
+                        "dniNumber": str(data['buyer_dni']),
+                        "shippingAddress": {
+                            "street1": "Calle 123",
+                            "city": "Bogota",
+                            "state": "Bogota D.C.",
+                            "country": "CO",
+                            "postalCode": "110111",
+                            "phone": "3221234567"
+                        }
                     }
                 },
                 "payer": {
                     "fullName": data['buyer_name'],
                     "emailAddress": data['buyer_email'],
                     "contactPhone": "3221234567",
-                    "dniNumber": str(data['buyer_dni']), # Forzar String
-                    "dniType": str(data['buyer_dni_type'])
+                    "dniNumber": str(data['buyer_dni']),
+                    "dniType": str(data['buyer_dni_type']),
+                    "billingAddress": {
+                        "street1": "Calle 123",
+                        "city": "Bogota",
+                        "state": "Bogota D.C.",
+                        "country": "CO",
+                        "postalCode": "110111",
+                        "phone": "3221234567"
+                    }
+                },
+                "extraParameters": {
+                    "RESPONSE_URL": "https://pos.colegiobilingue.edu.co/payment-result",
+                    "PSE_REFERENCE1": ip_address,
+                    "FINANCIAL_INSTITUTION_CODE": str(data['bank_code']),
+                    "USER_TYPE": "N" if data['user_type'] == "0" else "J", # <--- CORRECCIÓN N/J
+                    "PSE_REFERENCE2": str(data['buyer_dni_type']),
+                    "PSE_REFERENCE3": str(data['buyer_dni'])
                 },
                 "type": "AUTHORIZATION_AND_CAPTURE",
                 "paymentMethod": "PSE",
                 "paymentCountry": "CO",
                 "deviceSessionId": session_id,
-                "ipAddress": ip_address, # IP Real del cliente
-                "userAgent": user_agent,
-                "extraParameters": {
-                    "RESPONSE_URL": "https://pos.colegiobilingue.edu.co/payment-result",
-                    "PSE_REFERENCE1": ip_address,
-                    "FINANCIAL_INSTITUTION_CODE": str(data['bank_code']), # Forzar String
-                    "USER_TYPE": str(data['user_type']), # Forzar String
-                    "PSE_REFERENCE2": str(data['buyer_dni_type']),
-                    "PSE_REFERENCE3": str(data['buyer_dni'])
-                }
+                "ipAddress": ip_address,
+                "userAgent": user_agent
             },
             "test": settings.PAYU_IS_TEST
         }
         
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-        }
-
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
         response = requests.post(settings.PAYU_URL, json=payload, headers=headers, timeout=20)
         return response.json(), reference
         
