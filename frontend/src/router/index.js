@@ -33,11 +33,6 @@ const routes = [
         meta: { guest: true }
     },
     {
-        path: '/payment-result',
-        component: PaymentResult,
-        meta: { guest: true } // Opcional: permite ver el resultado sin estar logueado
-    },
-    {
         path: '/',
         component: MainLayout,
         meta: { requiresAuth: true },
@@ -54,6 +49,7 @@ const routes = [
             { path: 'my-card', component: MyCard },
             { path: 'reports', component: Reports },
             { path: 'settings', component: Settings },
+            { path: 'payment-result', component: PaymentResult },
         ]
     }
 ];
@@ -66,17 +62,20 @@ const router = createRouter({
 router.beforeEach(async (to, from, next) => {
     const authStore = useAuthStore();
 
-    // Si la ruta requiere auth y no tenemos token
     if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-        next('/login');
+        return next('/login');
     }
-    // Si vamos al login pero ya estamos logueados
-    else if (to.meta.guest && authStore.isAuthenticated) {
-        next('/');
+
+    // SI EL USUARIO VA A LA RAÍZ "/", REDIRIGIR SEGÚN ROL
+    if (to.path === '/' && authStore.isAuthenticated) {
+        const role = authStore.user?.role;
+        if (role === 'padre') return next('/my-family');
+        if (role === 'empleado') return next('/my-card');
+        if (role === 'vendedor') return next('/pos');
+        return next('/dashboard'); // Admin y Supervisor
     }
-    else {
-        next();
-    }
+
+    next();
 });
 
 export default router;

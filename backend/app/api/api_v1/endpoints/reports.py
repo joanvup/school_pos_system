@@ -147,13 +147,14 @@ def export_report(
     # 4. Reporte de Recargas (Solo usa fecha)
     elif report_type == "recharges":
         raw = crud_report.get_recharges_report(db, start_date, end_date)
-        headers = ["Fecha", "Ref. PSE", "Tarjeta UID", "Beneficiario", "Monto"]
+        headers = ["Fecha", "Ref. PSE", "CUS (Banco)", "Tarjeta UID", "Beneficiario", "Monto"]
         data = []
         for r in raw:
             ben = r.card.student.full_name if r.card.student else (r.card.employee.full_name if r.card.employee else "N/A")
             data.append([
                 r.timestamp.strftime("%Y-%m-%d %H:%M"), 
                 r.reference_code or "-", 
+                r.cus or "-",
                 r.card.uid, 
                 ben, 
                 f"${r.amount:,.0f}"

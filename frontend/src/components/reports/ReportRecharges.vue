@@ -23,6 +23,7 @@
                 <tr>
                     <th class="p-3">Fecha / Hora</th>
                     <th class="p-3">Referencia PSE</th>
+                    <th class="p-3">CUS (Banco)</th>
                     <th class="p-3">Tarjeta (UID)</th>
                     <th class="p-3">Beneficiario</th>
                     <th class="p-3 text-right">Monto Recargado</th>
@@ -32,6 +33,7 @@
                 <tr v-for="item in data" :key="item.id" class="hover:bg-gray-50 border-b">
                     <td class="p-3 text-gray-500">{{ new Date(item.timestamp).toLocaleString() }}</td>
                     <td class="p-3 font-mono text-xs font-bold text-blue-600">{{ item.reference }}</td>
+                    <td class="p-3 font-mono text-xs text-purple-600 font-bold">{{ item.cus }}</td> 
                     <td class="p-3 font-mono text-xs">{{ item.uid }}</td>
                     <td class="p-3 font-bold">{{ item.beneficiario }}</td>
                     <td class="p-3 text-right font-bold text-green-600">{{ formatMoney(item.amount) }}</td>
