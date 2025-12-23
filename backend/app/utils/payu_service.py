@@ -4,11 +4,16 @@ import uuid
 from app.core.config import settings
 
 class PayUService:
-    @staticmethod
     def generate_signature(reference_code, amount, currency="COP"):
-        # La firma en PayU es: ApiKey~merchantId~referenceCode~amount~currency
-        # Importante: El monto debe formatearse a una cifra decimal si termina en .0
-        raw_str = f"{settings.PAYU_API_KEY}~{settings.PAYU_MERCHANT_ID}~{reference_code}~{amount}~{currency}"
+        # PayU exige que si el valor no tiene decimales significativos, se use como entero
+        # Si es 50000.0 -> debe ser "50000"
+        # Si es 50000.5 -> debe ser "50000.5"
+        if float(amount) == int(float(amount)):
+            amount_str = str(int(float(amount)))
+        else:
+            amount_str = str(float(amount))
+            
+        raw_str = f"{settings.PAYU_API_KEY}~{settings.PAYU_MERCHANT_ID}~{reference_code}~{amount_str}~{currency}"
         return hashlib.md5(raw_str.encode('utf-8')).hexdigest()
 
     @staticmethod
@@ -63,8 +68,10 @@ class PayUService:
 
     @staticmethod
     def init_pse_payment(data: dict):
-        """Enviar solicitud de pago a PayU con objeto Payer incluido"""
+        # Generar referencia única
         reference = f"RECH-{uuid.uuid4().hex[:10].upper()}"
+        
+        # IMPORTANTE: La firma se genera con el valor exacto que irá en el JSON
         signature = PayUService.generate_signature(reference, data['amount'])
 
         payload = {
@@ -78,60 +85,51 @@ class PayUService:
                 "order": {
                     "accountId": settings.PAYU_ACCOUNT_ID,
                     "referenceCode": reference,
-                    "description": f"Recarga tarjeta {data['card_uid']}",
+                    "description": f"Recarga de saldo escolar",
                     "language": "es",
                     "signature": signature,
                     "notifyUrl": "https://pos.colegiobilingue.edu.co/api/v1/recharges/payu-confirmation",
                     "additionalValues": {
-                        "TX_VALUE": {"value": data['amount'], "currency": "COP"}
+                        "TX_VALUE": {"value": float(data['amount']), "currency": "COP"}
                     },
                     "buyer": {
                         "emailAddress": data['buyer_email'],
                         "fullName": data['buyer_name'],
-                        "contactPhone": "3000000000",
-                        "dniNumber": data['buyer_dni']
+                        "contactPhone": "3201234567",
+                        "dniNumber": str(data['buyer_dni'])
                     }
                 },
-                # --- NUEVO: OBJETO PAYER (OBLIGATORIO PARA PSE) ---
                 "payer": {
                     "fullName": data['buyer_name'],
                     "emailAddress": data['buyer_email'],
-                    "contactPhone": "3000000000",
-                    "dniNumber": data['buyer_dni'],
+                    "contactPhone": "3201234567",
+                    "dniNumber": str(data['buyer_dni']),
                     "dniType": data['buyer_dni_type']
                 },
-                # --------------------------------------------------
                 "type": "AUTHORIZATION_AND_CAPTURE",
                 "paymentMethod": "PSE",
                 "paymentCountry": "CO",
                 "deviceSessionId": "v768p964465i58552p54",
-                "ipAddress": "127.0.0.1",
+                "ipAddress": "127.0.0.1", # En sandbox se puede dejar fijo
                 "extraParameters": {
                     "RESPONSE_URL": "https://pos.colegiobilingue.edu.co/payment-result",
                     "PSE_REFERENCE1": "127.0.0.1",
-                    "FINANCIAL_INSTITUTION_CODE": data['bank_code'],
-                    "USER_TYPE": data['user_type'],
+                    "FINANCIAL_INSTITUTION_CODE": str(data['bank_code']),
+                    "USER_TYPE": str(data['user_type']),
                     "PSE_REFERENCE2": data['buyer_dni_type'],
-                    "PSE_REFERENCE3": data['buyer_dni']
+                    "PSE_REFERENCE3": str(data['buyer_dni'])
                 }
             },
             "test": settings.PAYU_IS_TEST
         }
         
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        }
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
 
         try:
             response = requests.post(settings.PAYU_URL, json=payload, headers=headers, timeout=20)
-            json_res = response.json()
-            # Log para debug en consola
-            print(f"DEBUG: Respuesta de PayU: {json_res}")
-            return json_res, reference
+            return response.json(), reference
         except Exception as e:
-            print(f"❌ ERROR LLAMANDO A PAYU SUBMIT: {e}")
-            return {"status": "ERROR", "message": str(e)}, reference
+            return {"status": "ERROR", "error": str(e)}, reference
         
     @staticmethod
     def verify_confirmation_signature(merchant_id, reference, value, currency, state, incoming_sign):
