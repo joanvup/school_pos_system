@@ -34,7 +34,7 @@
                 <label class="text-[10px] font-black text-gray-400 uppercase ml-2">Selecciona tu Banco</label>
                 <select v-model="form.bank_code" class="w-full mt-1 p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-primary font-bold text-gray-700">
                     <option :value="null" disabled>Cargando bancos...</option>
-                    <option v-for="bank in banks" :key="bank.id" :value="bank.id">
+                    <option v-for="bank in banks" :key="bank.pseCode" :value="bank.pseCode">
                         {{ bank.description }}
                     </option>
                 </select>
