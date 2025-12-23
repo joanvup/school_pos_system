@@ -39,6 +39,10 @@ def init_recharge(
     # 2. Llamar a PayU
     res, reference = PayUService.init_pse_payment(payload)
     
+    # DEBUG: Imprimir en consola del servidor para ver qué dice PayU
+    print(f"Respuesta de PayU para {reference}: {res}")
+
+    # 3. Validar respuesta
     if res.get("status") == "SUCCESS":
         # Guardamos la transacción con estado 'PENDING'
         # Debes crear el registro en la tabla transactions aquí
@@ -59,7 +63,12 @@ def init_recharge(
             "reference": reference
         }
     else:
-        raise HTTPException(status_code=400, detail=res.get("transactionResponse", {}).get("paymentNetworkResponseErrorMessage", "Error en PayU"))
+        # Extraemos el mensaje de error de la estructura de PayU
+        error_detail = res.get("transactionResponse", {}).get("paymentNetworkResponseErrorMessage") 
+        if not error_detail:
+            error_detail = res.get("reason") or "Error desconocido en la pasarela"
+            
+        raise HTTPException(status_code=400, detail=f"PayU dice: {error_detail}")
 
 @router.post("/payu-confirmation")
 async def payu_confirmation(request: Request, db: Session = Depends(get_db)):
