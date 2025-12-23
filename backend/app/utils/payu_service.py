@@ -63,7 +63,7 @@ class PayUService:
 
     @staticmethod
     def init_pse_payment(data: dict):
-        """Enviar solicitud de pago a PayU"""
+        """Enviar solicitud de pago a PayU con objeto Payer incluido"""
         reference = f"RECH-{uuid.uuid4().hex[:10].upper()}"
         signature = PayUService.generate_signature(reference, data['amount'])
 
@@ -92,6 +92,15 @@ class PayUService:
                         "dniNumber": data['buyer_dni']
                     }
                 },
+                # --- NUEVO: OBJETO PAYER (OBLIGATORIO PARA PSE) ---
+                "payer": {
+                    "fullName": data['buyer_name'],
+                    "emailAddress": data['buyer_email'],
+                    "contactPhone": "3000000000",
+                    "dniNumber": data['buyer_dni'],
+                    "dniType": data['buyer_dni_type']
+                },
+                # --------------------------------------------------
                 "type": "AUTHORIZATION_AND_CAPTURE",
                 "paymentMethod": "PSE",
                 "paymentCountry": "CO",
@@ -116,7 +125,10 @@ class PayUService:
 
         try:
             response = requests.post(settings.PAYU_URL, json=payload, headers=headers, timeout=20)
-            return response.json(), reference
+            json_res = response.json()
+            # Log para debug en consola
+            print(f"DEBUG: Respuesta de PayU: {json_res}")
+            return json_res, reference
         except Exception as e:
             print(f"❌ ERROR LLAMANDO A PAYU SUBMIT: {e}")
             return {"status": "ERROR", "message": str(e)}, reference
