@@ -1,125 +1,164 @@
 <template>
   <div class="space-y-6">
-    <div class="flex justify-between items-center">
-      <h1 class="text-2xl font-bold text-gray-800">Estudiantes</h1>
-      <button @click="openCreateModal" class="bg-primary text-white px-4 py-2 rounded shadow">+ Nuevo</button>
+    <!-- CABECERA -->
+    <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+      <div>
+        <h1 class="text-3xl font-black text-gray-900 tracking-tighter uppercase italic leading-none">Control de Estudiantes</h1>
+        <p class="text-gray-400 font-bold text-xs uppercase tracking-widest mt-2">Gestión de identidad y finanzas escolares</p>
+      </div>
+      <button @click="openStudentModal()" class="bg-primary hover:bg-blue-600 text-white px-8 py-4 rounded-3xl shadow-xl shadow-blue-100 font-black transition-all active:scale-95 flex items-center gap-2 uppercase text-sm">
+        <span>➕</span> Registrar Alumno
+      </button>
     </div>
 
-    <!-- BARRA BÚSQUEDA -->
-    <div class="bg-white p-4 rounded-xl shadow flex justify-between gap-4">
-        <input 
-            v-model="searchQuery" 
-            @input="handleSearch"
-            placeholder="Buscar estudiante..." 
-            class="border p-2 rounded w-full md:w-1/3 outline-none focus:ring-2 focus:ring-primary"
-        >
-        <div class="flex gap-2 items-center">
-             <button @click="prevPage" :disabled="page===1" class="border px-3 py-1 rounded disabled:opacity-50">◀</button>
-             <span class="font-bold">{{ page }}</span>
-             <button @click="nextPage" :disabled="students.length < limit" class="border px-3 py-1 rounded disabled:opacity-50">▶</button>
+    <!-- BARRA DE HERRAMIENTAS (BÚSQUEDA Y PAGINACIÓN) -->
+    <div class="bg-white p-5 rounded-[32px] shadow-sm border border-gray-100 flex flex-col lg:flex-row gap-4 items-center justify-between">
+        <div class="relative w-full lg:w-1/3">
+            <span class="absolute left-4 top-3.5 text-gray-400">🔍</span>
+            <input 
+                v-model="searchQuery" @input="handleSearch" type="text" 
+                placeholder="Buscar por nombre del alumno..." 
+                class="w-full pl-12 pr-4 py-3 bg-gray-50 border-2 border-gray-50 rounded-2xl focus:border-primary outline-none transition-all font-bold text-gray-700"
+            >
+        </div>
+
+        <div class="flex items-center gap-4 bg-gray-50 p-2 rounded-2xl border border-gray-100">
+            <button @click="prevPage" :disabled="page === 1" class="w-10 h-10 rounded-xl bg-white shadow-sm flex items-center justify-center hover:text-primary disabled:opacity-30 transition-all">◀</button>
+            <div class="px-4 text-center">
+                <span class="block text-[10px] font-black text-gray-400 uppercase">Página</span>
+                <span class="text-sm font-black text-primary">{{ page }}</span>
+            </div>
+            <button @click="nextPage" :disabled="students.length < limit" class="w-10 h-10 rounded-xl bg-white shadow-sm flex items-center justify-center hover:text-primary disabled:opacity-30 transition-all">▶</button>
         </div>
     </div>
 
-    <!-- TABLA -->
-    <div class="bg-white rounded-xl shadow overflow-hidden">
-        <div v-if="loading" class="p-4 text-center">Cargando...</div>
-        <table v-else class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
-                <tr>
-                    <th class="px-6 py-3 text-left text-xs text-gray-500 font-bold uppercase">Nombre</th>
-                    <th class="px-6 py-3 text-left text-xs text-gray-500 font-bold uppercase">Grado</th>
-                    <th class="px-6 py-3 text-left text-xs text-gray-500 font-bold uppercase">Estado</th>
-                    <th class="px-6 py-3 text-right"></th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr v-for="st in students" :key="st.id">
-                    <td class="px-6 py-4 font-bold">{{ st.full_name }}</td>
-                    <td class="px-6 py-4">{{ st.grade }}</td>
-                    <!-- Columna Tarjeta en Students.vue -->
-                    <td class="px-6 py-4">
-                        <!-- CASO 1: TIENE TARJETA -->
-                        <div v-if="st.card" class="flex items-center gap-2">
-                            <span class="bg-green-50 text-green-700 text-xs font-mono px-2 py-1 rounded border border-green-200 font-bold">
-                                {{ st.card.uid }}
-                            </span>
-                            <!-- Botón para cambiar tarjeta si se perdió -->
-                            <button @click="openCardModal(st)" class="text-gray-400 hover:text-blue-600" title="Cambiar tarjeta">
-                                🔄
-                            </button>
-                        </div>
+    <!-- LISTADO DE ESTUDIANTES -->
+    <div class="bg-white rounded-[40px] shadow-sm border border-gray-100 overflow-hidden">
+      <div v-if="loading" class="p-20 text-center">
+          <div class="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p class="text-gray-400 font-bold uppercase text-xs tracking-widest">Sincronizando datos...</p>
+      </div>
 
-                        <!-- CASO 2: NO TIENE TARJETA -->
-                        <div v-else>
-                            <button 
-                                @click="openCardModal(st)" 
-                                class="text-blue-600 font-bold text-xs border border-blue-600 px-2 py-1 rounded hover:bg-blue-50"
-                            >
-                                💳 Vincular
-                            </button>
+      <table v-else class="min-w-full divide-y divide-gray-100">
+        <thead class="bg-gray-50/50">
+          <tr class="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+            <th class="px-8 py-5 text-left">Información del Estudiante</th>
+            <th class="px-8 py-5 text-left">Padre / Acudiente</th>
+            <th class="px-8 py-5 text-left">Tarjeta RFID y Saldo</th>
+            <th class="px-8 py-5 text-right">Gestión</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          <tr v-for="st in students" :key="st.id" class="hover:bg-blue-50/30 transition-colors group">
+            <td class="px-8 py-6">
+              <div class="flex items-center gap-4">
+                  <div class="w-12 h-12 rounded-2xl bg-blue-100 flex items-center justify-center text-xl font-black text-blue-600">
+                      {{ st.full_name.charAt(0) }}
+                  </div>
+                  <div>
+                      <div class="text-sm font-black text-gray-800 leading-tight">{{ st.full_name }}</div>
+                      <div class="text-[10px] font-bold text-primary uppercase tracking-tighter mt-1 bg-blue-50 px-2 py-0.5 rounded-md inline-block">Curso: {{ st.grade }}</div>
+                  </div>
+              </div>
+            </td>
+            <td class="px-8 py-6">
+              <div class="text-xs font-bold text-gray-600 italic">
+                  ID: {{ st.parent_id }}
+              </div>
+              <div class="text-[10px] text-gray-400 font-medium">Asociado vía Excel/Manual</div>
+            </td>
+            <td class="px-8 py-6">
+                <!-- COLUMNA DINÁMICA DE TARJETA -->
+                <div v-if="st.card" class="flex items-center gap-4">
+                    <div class="bg-gray-900 text-white p-3 rounded-2xl shadow-lg border-2 border-gray-800 flex items-center gap-3">
+                        <div class="text-xl">💳</div>
+                        <div>
+                            <p class="text-[9px] font-black uppercase opacity-50 leading-none">UID Asignado</p>
+                            <p class="text-xs font-black font-mono tracking-tighter">{{ st.card.uid }}</p>
                         </div>
-                    </td>
-                </tr>
-            </tbody>
-        </table>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-[9px] font-black text-gray-400 uppercase">Saldo Actual</p>
+                        <p class="text-sm font-black text-green-600">{{ formatMoney(st.card.balance) }}</p>
+                    </div>
+                </div>
+                <div v-else class="text-red-400 text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-red-400 animate-pulse"></span>
+                    Pendiente de Vinculación
+                </div>
+            </td>
+            <td class="px-8 py-6 text-right space-x-3">
+                <button @click="openCardModal(st)" class="p-3 rounded-2xl bg-gray-100 text-gray-600 hover:bg-primary hover:text-white transition-all shadow-sm" title="Link/Replace Card">
+                    {{ st.card ? '🔄' : '💳' }}
+                </button>
+                <button @click="openStudentModal(st)" class="text-xs font-black text-gray-400 hover:text-primary uppercase tracking-widest">Editar</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
-    <!-- MODAL 1: Crear Estudiante -->
-    <div v-if="showCreate" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-        <h3 class="text-lg font-bold mb-4">Registrar Estudiante</h3>
-        
-        <form @submit.prevent="createStudent" class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700">Nombre Completo</label>
-            <input v-model="form.full_name" required type="text" class="mt-1 block w-full border border-gray-300 rounded p-2 outline-none focus:ring-primary focus:border-primary">
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700">Grado / Curso</label>
-            <input v-model="form.grade" required type="text" placeholder="Ej: 5A" class="mt-1 block w-full border border-gray-300 rounded p-2 outline-none">
-          </div>
-          
-          <div>
-            <label class="block text-sm font-medium text-gray-700">Padre / Acudiente</label>
-            <select v-model="form.parent_id" required class="mt-1 block w-full border border-gray-300 rounded p-2 outline-none bg-white">
-                <option :value="null" disabled>Seleccione un padre...</option>
-                <option v-for="user in parents" :key="user.id" :value="user.id">
-                    {{ user.full_name }} ({{ user.email }})
-                </option>
-            </select>
-            <p class="text-xs text-gray-500 mt-1">Solo aparecen usuarios con rol 'Padre'.</p>
-          </div>
-
-          <div class="flex justify-end gap-3 mt-6">
-            <button type="button" @click="showCreate = false" class="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">Cancelar</button>
-            <button type="submit" class="px-4 py-2 bg-primary text-white rounded hover:bg-blue-700">Guardar</button>
-          </div>
+    <!-- MODAL 1: REGISTRO/EDICIÓN ESTUDIANTE -->
+    <div v-if="showStudentModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-[40px] shadow-2xl max-w-md w-full p-8 border-4 border-gray-50">
+        <h3 class="text-2xl font-black mb-6 tracking-tighter uppercase italic">{{ isEditing ? 'Actualizar Alumno' : 'Nuevo Alumno' }}</h3>
+        <form @submit.prevent="saveStudent" class="space-y-4">
+           <div>
+             <label class="text-[10px] font-black text-gray-400 uppercase ml-2">Nombre Completo</label>
+             <input v-model="form.full_name" required type="text" class="w-full mt-1 p-3 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-primary font-bold">
+           </div>
+           <div class="grid grid-cols-2 gap-4">
+               <div>
+                 <label class="text-[10px] font-black text-gray-400 uppercase ml-2">Grado / Curso</label>
+                 <input v-model="form.grade" required type="text" placeholder="Ej: 11-A" class="w-full mt-1 p-3 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-primary font-bold">
+               </div>
+               <div>
+                 <label class="text-[10px] font-black text-gray-400 uppercase ml-2">ID del Padre</label>
+                 <input v-model.number="form.parent_id" required type="number" class="w-full mt-1 p-3 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-primary font-bold">
+               </div>
+           </div>
+           
+           <div class="flex gap-3 pt-6">
+             <button type="button" @click="showStudentModal = false" class="flex-1 py-4 bg-gray-100 text-gray-500 rounded-2xl font-black uppercase text-xs tracking-widest">Cancelar</button>
+             <button type="submit" class="flex-1 py-4 bg-primary text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg shadow-blue-100">Guardar Datos</button>
+           </div>
         </form>
       </div>
     </div>
 
-    <!-- MODAL 2: Asignar Tarjeta (Enrollment) -->
-    <div v-if="showCard" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div class="bg-white rounded-lg shadow-xl max-w-sm w-full p-8 text-center">
-        <div class="text-5xl mb-4">📡</div>
-        <h3 class="text-xl font-bold mb-2">Asignar Tarjeta</h3>
-        <p class="text-gray-600 mb-4">Estudiante: <span class="font-bold">{{ selectedStudent?.full_name }}</span></p>
+    <!-- MODAL 2: VINCULACIÓN / REEMPLAZO INTELIGENTE -->
+    <div v-if="showCardModal" class="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[60] p-4">
+      <div class="bg-white rounded-[50px] shadow-2xl p-10 max-w-sm w-full text-center border-8 border-gray-50 animate-scale-in">
+        <div class="text-6xl mb-6">{{ isReplacement ? '🔄' : '💳' }}</div>
+        <h3 class="text-2xl font-black uppercase tracking-tighter mb-2">
+            {{ isReplacement ? 'Reemplazar Tarjeta' : 'Vincular Tarjeta' }}
+        </h3>
+        <p class="text-gray-500 text-sm font-medium mb-8 leading-tight">
+            {{ isReplacement ? 'Se asignará un nuevo chip físico. El historial y el saldo se mantendrán intactos.' : 'Acerque la tarjeta física al lector para realizar el registro inicial.' }}
+        </p>
         
-        <p class="text-sm text-gray-500 mb-4">Pase la tarjeta por el lector ahora...</p>
+        <div class="bg-blue-50 p-4 rounded-2xl mb-6">
+            <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Estudiante Destino</p>
+            <p class="font-black text-blue-900">{{ selectedStudent?.full_name }}</p>
+        </div>
 
         <input 
-          ref="cardInput"
-          v-model="cardUid" 
-          @keyup.enter="assignCard"
-          type="text" 
-          class="w-full border-2 border-primary rounded p-2 text-center font-mono font-bold text-lg outline-none"
-          placeholder="Esperando lectura..."
-          autofocus
+          ref="cardInput" v-model="cardUid" @keyup.enter="handleCardAction"
+          type="password" 
+          class="w-full border-4 border-blue-100 bg-gray-50 rounded-3xl p-5 text-center text-3xl font-black text-primary outline-none focus:border-primary transition-all mb-4"
+          placeholder="••••••"
         >
         
-        <div v-if="cardError" class="text-red-500 text-sm mt-2 font-bold">{{ cardError }}</div>
+        <div v-if="cardError" class="text-red-500 text-xs font-black uppercase bg-red-50 p-3 rounded-xl mb-4 border border-red-100 animate-shake">
+            ⚠️ {{ cardError }}
+        </div>
 
-        <button @click="showCard = false" class="mt-6 text-gray-500 underline text-sm">Cancelar</button>
+        <div class="space-y-3">
+            <button @click="handleCardAction" class="w-full bg-primary text-white py-5 rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-blue-100 active:scale-95 transition-all">
+                {{ isReplacement ? 'Confirmar Reemplazo' : 'Vincular Tarjeta' }}
+            </button>
+            <button @click="showCardModal = false" class="w-full py-2 text-gray-400 font-bold uppercase text-[10px] tracking-widest hover:text-gray-600 transition-colors">Volver</button>
+        </div>
       </div>
     </div>
 
@@ -127,109 +166,133 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue';
+import { ref, onMounted, reactive } from 'vue';
 import api from '../api/axios';
+import { formatMoney } from '../utils/formatters';
 
 const students = ref([]);
-const parents = ref([]); // Lista de usuarios rol PADRE
 const loading = ref(false);
+const showStudentModal = ref(false);
+const isEditing = ref(false);
+const form = reactive({ id: null, full_name: '', grade: '', parent_id: null });
 
-// Modales
-const showCreate = ref(false);
-const showCard = ref(false);
-
-// Forms
-const form = ref({ full_name: '', grade: '', parent_id: null });
+// Lógica de Tarjetas
+const showCardModal = ref(false);
+const isReplacement = ref(false);
 const selectedStudent = ref(null);
 const cardUid = ref('');
 const cardInput = ref(null);
 const cardError = ref('');
 
-
-// Paginación
+// Paginación y Búsqueda
 const page = ref(1);
-const limit = ref(20);
+const limit = ref(10);
 const searchQuery = ref('');
-let timer = null;
+let searchTimer = null;
 
 const loadData = async () => {
     loading.value = true;
     try {
         const skip = (page.value - 1) * limit.value;
         const { data } = await api.get('/students/', {
-            params: {
-                skip,
-                limit: limit.value,
-                search: searchQuery.value || undefined
-            }
+            params: { skip, limit: limit.value, search: searchQuery.value || undefined }
         });
         students.value = data;
-    } catch(e) { console.error(e); }
-    finally { loading.value = false; }
+    } catch (e) {
+        console.error("Error cargando estudiantes:", e);
+    } finally {
+        loading.value = false;
+    }
 };
 
 const handleSearch = () => {
     page.value = 1;
-    clearTimeout(timer);
-    timer = setTimeout(loadData, 500);
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(loadData, 500);
 };
 
-const nextPage = () => { page.value++; loadData(); }
-const prevPage = () => { if(page.value > 1) page.value--; loadData(); }
+const nextPage = () => { page.value++; loadData(); };
+const prevPage = () => { if(page.value > 1) { page.value--; loadData(); } };
 
-// Helper para mostrar nombre del padre en la tabla
-const getParentName = (parentId) => {
-    const parent = parents.value.find(p => p.id === parentId);
-    return parent ? parent.full_name : `ID: ${parentId}`;
+// CRUD ESTUDIANTE
+const openStudentModal = (student = null) => {
+    if (student) {
+        isEditing.value = true;
+        Object.assign(form, { ...student });
+    } else {
+        isEditing.value = false;
+        Object.assign(form, { id: null, full_name: '', grade: '', parent_id: null });
+    }
+    showStudentModal.value = true;
 };
 
-// Crear Estudiante
-const openCreateModal = () => {
-    form.value = { full_name: '', grade: '', parent_id: null };
-    showCreate.value = true;
-};
-
-const createStudent = async () => {
+const saveStudent = async () => {
     try {
-        await api.post('/students/', form.value);
-        showCreate.value = false;
-        loadData(); // Recargar tabla
-    } catch (error) {
-        alert("Error creando estudiante. Verifique datos.");
+        if (isEditing.value) {
+            await api.put(`/students/${form.id}`, form);
+        } else {
+            await api.post('/students/', form);
+        }
+        showStudentModal.value = false;
+        loadData();
+    } catch (e) {
+        alert("Error al procesar la solicitud del estudiante");
     }
 };
 
-// Asignar Tarjeta
+// LÓGICA DE TARJETA (LINK / REPLACE)
 const openCardModal = (student) => {
     selectedStudent.value = student;
     cardUid.value = '';
     cardError.value = '';
-    showCard.value = true;
+    isReplacement.value = !!student.card; // Es reemplazo si ya tiene objeto tarjeta
+    showCardModal.value = true;
     
-    // Auto-focus al input
-    nextTick(() => {
+    setTimeout(() => {
         if(cardInput.value) cardInput.value.focus();
-    });
+    }, 200);
 };
 
-const assignCard = async () => {
+const handleCardAction = async () => {
     if(!cardUid.value) return;
-    
+    cardError.value = '';
+
     try {
-        await api.post('/cards/', {
-            uid: cardUid.value,
-            student_id: selectedStudent.value.id,
-            daily_limit: 50000 // Limite por defecto
-        });
-        alert("¡Tarjeta vinculada exitosamente!");
-        showCard.value = false;
-        // Opcional: Marcar visualmente que ya tiene tarjeta
-        selectedStudent.value.has_card = true; 
+        if (isReplacement.value) {
+            // Reemplazo: Mantiene el registro de tarjeta pero cambia el UID físico
+            await api.post('/cards/replace', {
+                old_uid: selectedStudent.value.card.uid,
+                new_uid: cardUid.value
+            });
+            alert("✅ Tarjeta reemplazada exitosamente. El saldo se ha preservado.");
+        } else {
+            // Vinculación Nueva
+            await api.post('/cards/', {
+                uid: cardUid.value,
+                student_id: selectedStudent.value.id,
+                daily_limit: 50000 // Valor por defecto
+            });
+            alert("✅ Tarjeta vinculada al estudiante correctamente.");
+        }
+        showCardModal.value = false;
+        loadData();
     } catch (error) {
-        cardError.value = error.response?.data?.detail || "Error al asignar tarjeta";
-        cardUid.value = ''; // Limpiar para reintentar
+        cardError.value = error.response?.data?.detail || "No se pudo procesar la tarjeta";
+        cardUid.value = '';
+        cardInput.value?.focus();
     }
 };
 
 onMounted(loadData);
 </script>
+
+<style scoped>
+.animate-scale-in { animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes scaleIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+.animate-shake { animation: shake 0.2s ease-in-out 0s 2; }
+
+/* Scrollbar personalizada para la tabla */
+.custom-scrollbar::-webkit-scrollbar { height: 6px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+</style>

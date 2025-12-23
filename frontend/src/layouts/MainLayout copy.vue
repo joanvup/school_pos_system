@@ -64,6 +64,10 @@
         <router-link v-if="role === 'admin'" to="/settings" class="menu-item" active-class="active">
           <span>⚙️ Configuración</span>
         </router-link>
+        
+        <router-link v-if="role === 'admin'" to="/balance-audit" class="menu-item" active-class="active">
+          <span class="mr-3">⚖️</span> Confrontar Saldos
+        </router-link>
 
       </nav>
 

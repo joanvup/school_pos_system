@@ -11,6 +11,8 @@ from app.core.config import settings
 from app.schemas.token import Token
 from app.utils.email_sender import send_recovery_email
 from app.schemas.user import UserUpdate
+from app.api import deps
+from app.models.user import User
 
 router = APIRouter()
 

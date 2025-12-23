@@ -19,6 +19,7 @@ import Reports from '../views/Reports.vue';
 import Settings from '../views/Settings.vue';
 import ResetPassword from '../views/ResetPassword.vue';
 import PaymentResult from '../views/PaymentResult.vue';
+import BalanceAudit from '../views/BalanceAudit.vue';
 
 
 const routes = [
@@ -50,6 +51,7 @@ const routes = [
             { path: 'reports', component: Reports },
             { path: 'settings', component: Settings },
             { path: 'payment-result', component: PaymentResult },
+            { path: 'balance-audit', component: BalanceAudit },
         ]
     }
 ];

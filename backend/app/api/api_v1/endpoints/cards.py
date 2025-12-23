@@ -10,9 +10,11 @@ from app.models.user import User
 
 from typing import List, Optional
 from app.models.card import Transaction
+from app.models.card import Card
 
 from pydantic import BaseModel
 from datetime import datetime
+
 
 # Sub-schema para los productos individuales
 class TransactionDetailResponse(BaseModel):
@@ -175,3 +177,27 @@ def read_card_history(
         .all()
         
     return history
+
+@router.post("/replace")
+def replace_card(
+    payload: dict, # { "old_uid": "...", "new_uid": "..." }
+    db: Session = Depends(get_db),
+    current_user: User = Depends(deps.get_current_admin_or_supervisor)
+):
+    # 1. Buscar la tarjeta actual
+    card = db.query(Card).filter(Card.uid == payload['old_uid']).first()
+    if not card:
+        raise HTTPException(status_code=404, detail="La tarjeta original no existe.")
+
+    # 2. Ejecutar reemplazo
+    updated_card, error = crud_card.replace_card_uid(
+        db, 
+        current_card=card, 
+        new_uid=payload['new_uid'], 
+        actor_id=current_user.id
+    )
+
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+
+    return {"message": "Tarjeta reemplazada exitosamente", "new_uid": updated_card.uid}
