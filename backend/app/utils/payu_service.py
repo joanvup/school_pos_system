@@ -89,19 +89,19 @@ class PayUService:
                         "emailAddress": data['buyer_email'],
                         "fullName": data['buyer_name'],
                         "contactPhone": "3000000000",
-                        "dniNumber": "123456"
+                        "dniNumber": data['buyer_dni']
                     }
                 },
                 "type": "AUTHORIZATION_AND_CAPTURE",
                 "paymentMethod": "PSE",
                 "paymentCountry": "CO",
-                "deviceSessionId": "v768p964465i58552p54", # Requerido por seguridad
+                "deviceSessionId": "v768p964465i58552p54",
                 "ipAddress": "127.0.0.1",
                 "extraParameters": {
                     "RESPONSE_URL": "https://pos.colegiobilingue.edu.co/payment-result",
                     "PSE_REFERENCE1": "127.0.0.1",
                     "FINANCIAL_INSTITUTION_CODE": data['bank_code'],
-                    "USER_TYPE": data['user_type'], # 0: Natural, 1: Jurídica
+                    "USER_TYPE": data['user_type'],
                     "PSE_REFERENCE2": data['buyer_dni_type'],
                     "PSE_REFERENCE3": data['buyer_dni']
                 }
@@ -109,9 +109,17 @@ class PayUService:
             "test": settings.PAYU_IS_TEST
         }
         
-        response = requests.post(settings.PAYU_URL, json=payload)
-        return response.json(), reference
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
 
+        try:
+            response = requests.post(settings.PAYU_URL, json=payload, headers=headers, timeout=20)
+            return response.json(), reference
+        except Exception as e:
+            print(f"❌ ERROR LLAMANDO A PAYU SUBMIT: {e}")
+            return {"status": "ERROR", "message": str(e)}, reference
     @staticmethod
     def verify_confirmation_signature(merchant_id, reference, value, currency, state, incoming_sign):
         """

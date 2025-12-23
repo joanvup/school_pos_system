@@ -6,7 +6,7 @@ from app.crud import crud_transaction, crud_card
 from app.api import deps
 from app.models.user import User, UserRole
 from app.utils.payu_service import PayUService
-from app.models.card import Card
+from app.models.card import Card, Transaction, TransactionType
 
 router = APIRouter()
 
