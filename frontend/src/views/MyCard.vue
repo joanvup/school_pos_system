@@ -173,6 +173,14 @@
             <button @click="showLimitModal = false" class="mt-4 text-gray-500 underline text-sm">Cancelar</button>
         </div>
     </div>
+    <!-- MODAL PSE PAYMENT -->
+    <PsePaymentModal 
+        v-if="myCard"
+        :is-open="isPseOpen" 
+        :title="authStore.user?.full_name" 
+        :card-uid="myCard.uid"
+        @close="isPseOpen = false"
+    />
 
   </div>
 </template>
@@ -182,6 +190,14 @@ import { ref, onMounted } from 'vue';
 import api from '../api/axios';
 import { useAuthStore } from '../stores/auth';
 import { formatMoney } from '../utils/formatters';
+
+// 1. IMPORTAR
+import PsePaymentModal from '../components/PsePaymentModal.vue';
+
+// 2. FUNCIÓN SIMPLIFICADA
+const openRecharge = () => {
+    isPseOpen.value = true;
+};
 
 const authStore = useAuthStore();
 const myCard = ref(null);
@@ -243,10 +259,10 @@ const loadCard = async () => {
     }
 };
 
-const openRecharge = () => {
+/*const openRecharge = () => {
     amount.value = 50000;
     showRechargeModal.value = true;
-};
+}; */
 
 const processRecharge = async () => {
     try {

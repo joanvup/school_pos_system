@@ -18,6 +18,7 @@ import MyCard from '../views/MyCard.vue';
 import Reports from '../views/Reports.vue';
 import Settings from '../views/Settings.vue';
 import ResetPassword from '../views/ResetPassword.vue';
+import PaymentResult from '../views/PaymentResult.vue';
 
 
 const routes = [
@@ -30,6 +31,11 @@ const routes = [
         path: '/reset-password',
         component: ResetPassword,
         meta: { guest: true }
+    },
+    {
+        path: '/payment-result',
+        component: PaymentResult,
+        meta: { guest: true } // Opcional: permite ver el resultado sin estar logueado
     },
     {
         path: '/',

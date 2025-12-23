@@ -186,7 +186,13 @@
             <button @click="showLimitModal = false" class="mt-4 text-gray-500 underline text-sm">Cancelar</button>
         </div>
     </div>
-
+    <!-- MODAL 4: PSE PAYMENT -->
+    <PsePaymentModal 
+        :is-open="isPseOpen" 
+        :title="selectedTarget.name" 
+        :card-uid="selectedTarget.uid"
+        @close="isPseOpen = false"
+    />
   </div>
 </template>
 
@@ -195,8 +201,26 @@ import { ref, onMounted } from 'vue';
 import api from '../api/axios';
 import { formatMoney } from '../utils/formatters';
 
+// 1. IMPORTAR EL NUEVO COMPONENTE
+import PsePaymentModal from '../components/PsePaymentModal.vue';
+
 const students = ref([]);
 const loading = ref(true);
+
+// 2. VARIABLES PARA CONTROLAR EL MODAL
+const isPseOpen = ref(false); // ¿Está abierto el modal?
+const selectedTarget = ref({ name: '', uid: '' }); // Datos del hijo seleccionado
+
+// 3. FUNCIÓN PARA ABRIR EL MODAL
+const openRecharge = (student) => {
+    // Guardamos los datos del hijo al que hicieron clic
+    selectedTarget.value = { 
+        name: student.full_name, 
+        uid: student.card.uid 
+    };
+    // Abrimos el modal
+    isPseOpen.value = true;
+};
 
 // Variables de Recarga
 const showRecharge = ref(false);
@@ -254,12 +278,12 @@ const loadFamily = async () => {
     finally { loading.value = false; }
 };
 
-// --- LOGICA RECARGA ---
+/* --- LOGICA RECARGA ---
 const openRecharge = (student) => {
     selectedStudent.value = student;
     amount.value = 20000;
     showRecharge.value = true;
-};
+}; */
 
 const processRecharge = async () => {
     if(!selectedStudent.value.card) return alert("Sin tarjeta");
@@ -334,3 +358,9 @@ const toggleCardStatus = async (student) => {
 };
 onMounted(loadFamily);
 </script>
+<PsePaymentModal 
+    :is-open="isPseOpen" 
+    :title="selectedTarget.name" 
+    :card-uid="selectedTarget.uid"
+    @close="isPseOpen = false"
+/>
