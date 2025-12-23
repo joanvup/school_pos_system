@@ -6,32 +6,17 @@ from app.core.config import settings
 
 class PayUService:
     @staticmethod
-    def verify_confirmation_signature(merchant_id, reference, value, currency, state, incoming_sign):
-        """
-        Versión ultra-robusta para validar la firma de PayU.
-        Prueba múltiples formatos de número para asegurar coincidencia.
-        """
-        import decimal
-        
-        # PayU usa: ApiKey~merchant_id~reference_sale~value~currency~state_pol
-        # El valor es un dolor de cabeza, probaremos las 3 variantes más comunes:
-        
-        # Variante 1: Un decimal (.0) - El más común
-        val_1 = str(decimal.Decimal(value).quantize(decimal.Decimal('0.0'), rounding=decimal.ROUND_HALF_EVEN))
-        # Variante 2: Sin decimales
-        val_2 = str(int(float(value)))
-        # Variante 3: Tal cual llega
-        val_3 = str(value)
+    def generate_signature(reference_code, amount, currency="COP"):
+        # PayU pide: ApiKey~merchantId~referenceCode~amount~currency
+        # Formateamos el monto: si es 50000.0 -> "50000", si es 50000.5 -> "50000.5"
+        amount_val = float(amount)
+        if amount_val == int(amount_val):
+            amount_str = str(int(amount_val))
+        else:
+            amount_str = str(amount_val)
 
-        for v in [val_1, val_2, val_3]:
-            raw_str = f"{settings.PAYU_API_KEY}~{merchant_id}~{reference}~{v}~{currency}~{state}"
-            generated_sign = hashlib.md5(raw_str.encode('utf-8')).hexdigest()
-            if generated_sign == incoming_sign:
-                print(f"DEBUG: Firma validada con éxito usando valor: {v}")
-                return True
-        
-        print(f"DEBUG: Error de firma. Recibida: {incoming_sign}")
-        return False
+        raw_str = f"{settings.PAYU_API_KEY}~{settings.PAYU_MERCHANT_ID}~{reference_code}~{amount_str}~{currency}"
+        return hashlib.md5(raw_str.encode('utf-8')).hexdigest()
     
     @staticmethod
     def get_banks():
@@ -174,25 +159,27 @@ class PayUService:
     @staticmethod
     def verify_confirmation_signature(merchant_id, reference, value, currency, state, incoming_sign):
         """
-        Valida la firma que envía PayU en la confirmación.
-        La fórmula es: ApiKey~merchant_id~referenceCode~new_value~currency~state
-        Nota: PayU a veces envía el valor con un decimal (.0), hay que ser exactos.
+        Versión ultra-robusta para validar la firma de PayU.
+        Prueba múltiples formatos de número para asegurar coincidencia.
         """
-        # El valor debe tratarse con cuidado para que coincida con el hash
-        # Si el valor es 50000.00, PayU suele firmar como 50000.0 o 50000
-        # Una técnica común es formatear a 1 decimal si es necesario.
         import decimal
-        formatted_value = str(decimal.Decimal(value).quantize(decimal.Decimal('0.0'), rounding=decimal.ROUND_HALF_EVEN))
         
-        raw_str = f"{settings.PAYU_API_KEY}~{merchant_id}~{reference}~{formatted_value}~{currency}~{state}"
-        # Si no coincide con .0, intentamos sin decimales (depende de la versión de PayU)
-        generated_sign = hashlib.md5(raw_str.encode('utf-8')).hexdigest()
+        # PayU usa: ApiKey~merchant_id~reference_sale~value~currency~state_pol
+        # El valor es un dolor de cabeza, probaremos las 3 variantes más comunes:
         
-        if generated_sign == incoming_sign:
-            return True
-            
-        # Intento 2: Sin decimales
-        raw_str_alt = f"{settings.PAYU_API_KEY}~{merchant_id}~{reference}~{int(float(value))}~{currency}~{state}"
-        generated_sign_alt = hashlib.md5(raw_str_alt.encode('utf-8')).hexdigest()
+        # Variante 1: Un decimal (.0) - El más común
+        val_1 = str(decimal.Decimal(value).quantize(decimal.Decimal('0.0'), rounding=decimal.ROUND_HALF_EVEN))
+        # Variante 2: Sin decimales
+        val_2 = str(int(float(value)))
+        # Variante 3: Tal cual llega
+        val_3 = str(value)
+
+        for v in [val_1, val_2, val_3]:
+            raw_str = f"{settings.PAYU_API_KEY}~{merchant_id}~{reference}~{v}~{currency}~{state}"
+            generated_sign = hashlib.md5(raw_str.encode('utf-8')).hexdigest()
+            if generated_sign == incoming_sign:
+                print(f"DEBUG: Firma validada con éxito usando valor: {v}")
+                return True
         
-        return generated_sign_alt == incoming_sign
+        print(f"DEBUG: Error de firma. Recibida: {incoming_sign}")
+        return False
