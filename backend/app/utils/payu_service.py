@@ -70,7 +70,7 @@ class PayUService:
     def init_pse_payment(data: dict):
         # Generar referencia única
         reference = f"RECH-{uuid.uuid4().hex[:10].upper()}"
-        
+        device_session_id = hashlib.md5(str(uuid.uuid4()).encode()).hexdigest()
         # IMPORTANTE: La firma se genera con el valor exacto que irá en el JSON
         signature = PayUService.generate_signature(reference, data['amount'])
 
@@ -109,7 +109,7 @@ class PayUService:
                 "type": "AUTHORIZATION_AND_CAPTURE",
                 "paymentMethod": "PSE",
                 "paymentCountry": "CO",
-                "deviceSessionId": "v768p964465i58552p54",
+                "deviceSessionId": device_session_id,
                 "ipAddress": "127.0.0.1", # En sandbox se puede dejar fijo
                 "extraParameters": {
                     "RESPONSE_URL": "https://pos.colegiobilingue.edu.co/payment-result",

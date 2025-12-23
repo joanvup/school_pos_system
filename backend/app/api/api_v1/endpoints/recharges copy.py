@@ -24,54 +24,51 @@ def get_pse_banks(current_user: User = Depends(deps.get_current_active_user)):
 
 @router.post("/init-payu-pse")
 def init_recharge(
-    payload: dict,
+    payload: dict, # amount, bank_code, user_type, card_uid, etc.
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user)
 ):
-    # 1. Buscar tarjeta (Mantener igual...)
+    # 1. Buscar la tarjeta
     card = db.query(Card).filter(Card.uid == payload['card_uid']).first()
     if not card: raise HTTPException(status_code=404, detail="Tarjeta no existe")
 
-    # 2. Llamar a PayU
+    # 1. Preparar datos adicionales
     payload['buyer_email'] = current_user.email
     payload['buyer_name'] = current_user.full_name
+    
+    # 2. Llamar a PayU
     res, reference = PayUService.init_pse_payment(payload)
     
-    tx_res = res.get("transactionResponse", {})
-    state = tx_res.get("state") # APPROVED, PENDING, DECLINED, ERROR
+    # DEBUG: Imprimir en consola del servidor para ver qué dice PayU
+    print(f"Respuesta de PayU para {reference}: {res}")
 
-    # LÓGICA DE VALIDACIÓN ROBUSTA
-    if state == "PENDING" and "extraParameters" in tx_res and "BANK_URL" in tx_res["extraParameters"]:
-        # --- EL PAGO FUE ACEPTADO PARA REDIRECCIÓN ---
+    # 3. Validar respuesta
+    if res.get("status") == "SUCCESS":
+        # Guardamos la transacción con estado 'PENDING'
+        # Debes crear el registro en la tabla transactions aquí
+        # --- NUEVO: GUARDAR TRANSACCIÓN PENDIENTE ---
         new_tx = Transaction(
             card_id=card.id,
             amount=payload['amount'],
             type=TransactionType.RECHARGE,
-            description=f"Recarga PSE en proceso ({reference})",
+            description=f"Recarga PSE en proceso",
             reference_code=reference,
-            status="pending"
+            status="pending" # Importante
         )
         db.add(new_tx)
         db.commit()
-
+        # --------------------------------------------
         return {
-            "redirect_url": tx_res["extraParameters"]["BANK_URL"],
+            "redirect_url": res["transactionResponse"]["extraParameters"]["BANK_URL"],
             "reference": reference
         }
-    
     else:
-        # --- EL PAGO FUE RECHAZADO O HUBO ERROR ---
-        response_code = tx_res.get("responseCode", "UNKNOWN_ERROR")
-        
-        # Mapeo de errores comunes de PayU para el usuario
-        error_msg = {
-            "BANK_UNREACHABLE": "El simulador del banco no está disponible. Por favor selecciona 'BANCO UNION COLOMBIANO'.",
-            "PAYMENT_NETWORK_BAD_RESPONSE": "Error de comunicación con la red de pagos.",
-            "INVALID_SIGNATURE": "Error de seguridad en la firma de la transacción.",
-            "EXCEEDED_AMOUNT": "El monto supera el límite permitido."
-        }.get(response_code, f"Error en la transacción: {response_code}")
-
-        raise HTTPException(status_code=400, detail=error_msg)
+        # Extraemos el mensaje de error de la estructura de PayU
+        error_detail = res.get("transactionResponse", {}).get("paymentNetworkResponseErrorMessage") 
+        if not error_detail:
+            error_detail = res.get("reason") or "Error desconocido en la pasarela"
+            
+        raise HTTPException(status_code=400, detail=f"PayU dice: {error_detail}")
 
 @router.post("/payu-confirmation")
 async def payu_confirmation(request: Request, db: Session = Depends(get_db)):
