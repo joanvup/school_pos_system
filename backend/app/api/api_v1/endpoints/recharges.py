@@ -29,11 +29,13 @@ def init_recharge(
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user)
 ):
+    
     # --- 1. DETECTAR URL DINÁMICA ---
     # Usamos x-forwarded-proto para detectar si es HTTPS detrás de Nginx
     scheme = request.headers.get("x-forwarded-proto", "http")
     host = request.headers.get("host")
     base_url = f"{scheme}://{host}"
+    print(base_url)
     
     client_ip = request.headers.get("X-Real-IP") or request.client.host
     user_agent = request.headers.get("User-Agent") or "Unknown"
