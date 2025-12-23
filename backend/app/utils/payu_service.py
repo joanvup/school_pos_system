@@ -120,6 +120,7 @@ class PayUService:
         except Exception as e:
             print(f"❌ ERROR LLAMANDO A PAYU SUBMIT: {e}")
             return {"status": "ERROR", "message": str(e)}, reference
+        
     @staticmethod
     def verify_confirmation_signature(merchant_id, reference, value, currency, state, incoming_sign):
         """

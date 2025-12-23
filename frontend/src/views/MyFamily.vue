@@ -358,9 +358,3 @@ const toggleCardStatus = async (student) => {
 };
 onMounted(loadFamily);
 </script>
-<PsePaymentModal 
-    :is-open="isPseOpen" 
-    :title="selectedTarget.name" 
-    :card-uid="selectedTarget.uid"
-    @close="isPseOpen = false"
-/>
