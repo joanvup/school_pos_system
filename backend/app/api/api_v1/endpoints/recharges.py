@@ -29,6 +29,10 @@ def init_recharge(
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user)
 ):
+    # Detectar dominio dinámico (soporta http/https y cualquier dominio)
+    scheme = request.headers.get("x-forwarded-proto", "http")
+    base_url = f"{scheme}://{request.headers.get('host')}"
+    print(base_url)
     # 1. Obtener IP real del cliente (detrás de Nginx)
     client_ip = request.headers.get("X-Real-IP") or request.client.host
     user_agent = request.headers.get("User-Agent") or "Unknown"
@@ -42,13 +46,15 @@ def init_recharge(
     payload['buyer_name'] = current_user.full_name
     
     # Pasamos IP y UserAgent al servicio
-    res, reference = PayUService.init_pse_payment(payload, client_ip, user_agent)
+    res, reference = PayUService.init_pse_payment(payload, client_ip, user_agent, base_url)
     
     tx_res = res.get("transactionResponse", {})
     state = tx_res.get("state") # APPROVED, PENDING, DECLINED, ERROR
     print(state)
     # LÓGICA DE VALIDACIÓN ROBUSTA
     if state == "PENDING" and "extraParameters" in tx_res and "BANK_URL" in tx_res["extraParameters"]:
+        # EXTRAEMOS EL CUS (Trazability Code en PayU)
+        cus = tx_res.get("trazabilityCode")
         # --- EL PAGO FUE ACEPTADO PARA REDIRECCIÓN ---
         new_tx = Transaction(
             card_id=card.id,
@@ -56,6 +62,7 @@ def init_recharge(
             type=TransactionType.RECHARGE,
             description=f"Recarga PSE en proceso ({reference})",
             reference_code=reference,
+            cus=cus,
             status="pending"
         )
         db.add(new_tx)
@@ -93,6 +100,7 @@ async def payu_confirmation(request: Request, db: Session = Depends(get_db)):
     value = form_data.get("value")
     currency = form_data.get("currency")
     state = form_data.get("state_pol") # 4=Aprobado, 6=Rechazado
+    cus_banco = form_data.get("cus") # CUS que llega del banco en la confirmación
     incoming_sign = form_data.get("sign")
 
     # 2. Validar Firma
@@ -112,7 +120,7 @@ async def payu_confirmation(request: Request, db: Session = Depends(get_db)):
     if state == "4": # APROBADO
         tx.status = "approved"
         tx.description = f"Recarga PSE exitosa (Ref: {form_data.get('transaction_id')})"
-        
+        tx.cus = cus_banco if cus_banco else tx.cus # Actualizamos CUS final
         # SUMAR SALDO A LA TARJETA
         tx.card.balance += float(value)
         db.add(tx.card)

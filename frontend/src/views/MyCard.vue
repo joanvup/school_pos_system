@@ -179,6 +179,7 @@
         :is-open="isPseOpen" 
         :title="authStore.user?.full_name" 
         :card-uid="myCard.uid"
+        :current-balance="myCard.balance" 
         @close="isPseOpen = false"
     />
 
@@ -199,6 +200,7 @@ const isPseOpen = ref(false); // ¿Está abierto el modal?
 // 2. FUNCIÓN SIMPLIFICADA
 const openRecharge = () => {
     isPseOpen.value = true;
+    
 };
 
 const authStore = useAuthStore();

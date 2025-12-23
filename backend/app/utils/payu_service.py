@@ -69,7 +69,7 @@ class PayUService:
             return []
 
     @staticmethod
-    def init_pse_payment(data: dict, ip_address: str, user_agent: str):
+    def init_pse_payment(data: dict, ip_address: str, user_agent: str, base_url: str):
         reference = f"RECH-{uuid.uuid4().hex[:10].upper()}"
         
         # Limpieza de monto para evitar el .0 en el JSON
@@ -77,6 +77,9 @@ class PayUService:
         amount_json = int(amount_val) if amount_val == int(amount_val) else amount_val
         
         signature = PayUService.generate_signature(reference, amount_json)
+        # Datos de contacto opcionales con fallback
+        phone = data.get('phone') if data.get('phone') else "3221234567"
+        address = data.get('address') if data.get('address') else "Calle 3 # 19b 105"
         
         # PayU prefiere un deviceSessionId de 32 caracteres (MD5)
         session_id = hashlib.md5(str(uuid.uuid4()).encode()).hexdigest()
@@ -92,10 +95,10 @@ class PayUService:
                 "order": {
                     "accountId": str(settings.PAYU_ACCOUNT_ID),
                     "referenceCode": reference,
-                    "description": "Recarga saldo Cafeteria FCBV",
+                    "description": f"Recarga Cafeteria FCBV - Tarjeta {data['card_uid']}",
                     "language": "es",
                     "signature": signature,
-                    "notifyUrl": "https://pos.colegiobilingue.edu.co/api/v1/recharges/payu-confirmation",
+                    "notifyUrl": f"{base_url}/api/v1/recharges/payu-confirmation", 
                     "additionalValues": {
                         "TX_VALUE": {"value": amount_json, "currency": "COP"},
                         "TX_TAX": {"value": 0, "currency": "COP"},
@@ -105,34 +108,34 @@ class PayUService:
                         "merchantBuyerId": "1",
                         "fullName": data['buyer_name'],
                         "emailAddress": data['buyer_email'],
-                        "contactPhone": "3221234567",
+                        "contactPhone": phone,
                         "dniNumber": str(data['buyer_dni']),
                         "shippingAddress": {
-                            "street1": "Calle 123",
+                            "street1": address,
                             "city": "Bogota",
                             "state": "Bogota D.C.",
                             "country": "CO",
                             "postalCode": "000000",
-                            "phone": "3221234567"
+                            "phone": phone
                         }
                     }
                 },
                 "payer": {
                     "fullName": data['buyer_name'],
                     "emailAddress": data['buyer_email'],
-                    "contactPhone": "3221234567",
+                    "contactPhone": phone,
                     "dniNumber": str(data['buyer_dni']),
                     "billingAddress": {
-                        "street1": "Calle 123",
+                        "street1": address,
                         "city": "Bogota",
                         "state": "Bogota D.C.",
                         "country": "CO",
                         "postalCode": "000000",
-                        "phone": "3221234567"
+                        "phone": phone
                     }
                 },
                 "extraParameters": {
-                    "RESPONSE_URL": "https://pos.colegiobilingue.edu.co/payment-result",
+                    "RESPONSE_URL": f"{base_url}/payment-result",
                     "PSE_REFERENCE1": ip_address,
                     "FINANCIAL_INSTITUTION_CODE": str(data['bank_code']),
                     "USER_TYPE": "N" if data['user_type'] == "0" else "J",

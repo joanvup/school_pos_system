@@ -279,6 +279,7 @@ def read_recharges_history(
             "uid": tx.card.uid,
             "beneficiario": beneficiario,
             "reference": tx.reference_code,
+            "cus": tx.cus or "N/A", # <--- MOSTRAR CUS
             "amount": tx.amount
         })
     return formatted

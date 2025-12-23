@@ -40,7 +40,7 @@ class Transaction(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     reference_code = Column(String(100), nullable=True) # Código PSE
     status = Column(String(20), default="completed") 
-
+    cus = Column(String(100), nullable=True, index=True) 
     card = relationship("Card", back_populates="transactions")
     details = relationship("TransactionDetail", back_populates="transaction")
 

@@ -191,6 +191,7 @@
         :is-open="isPseOpen" 
         :title="selectedTarget.name" 
         :card-uid="selectedTarget.uid"
+        :current-balance="selectedTarget.balance" 
         @close="isPseOpen = false"
     />
   </div>
@@ -216,7 +217,8 @@ const openRecharge = (student) => {
     // Guardamos los datos del hijo al que hicieron clic
     selectedTarget.value = { 
         name: student.full_name, 
-        uid: student.card.uid 
+        uid: student.card.uid,
+        balance: student.card.balance 
     };
     // Abrimos el modal
     isPseOpen.value = true;
