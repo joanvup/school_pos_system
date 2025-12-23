@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.db.session import get_db
 from app.schemas.recharge import RechargeCreate, RechargeResponse
 from app.crud import crud_transaction, crud_card
@@ -29,28 +29,28 @@ def init_recharge(
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user)
 ):
-    # Detectar dominio dinámico (soporta http/https y cualquier dominio)
+    # --- 1. DETECTAR URL DINÁMICA ---
+    # Usamos x-forwarded-proto para detectar si es HTTPS detrás de Nginx
     scheme = request.headers.get("x-forwarded-proto", "http")
-    base_url = f"{scheme}://{request.headers.get('host')}"
-    print(base_url)
-    # 1. Obtener IP real del cliente (detrás de Nginx)
+    host = request.headers.get("host")
+    base_url = f"{scheme}://{host}"
+    
     client_ip = request.headers.get("X-Real-IP") or request.client.host
     user_agent = request.headers.get("User-Agent") or "Unknown"
 
-    # 2. Validar tarjeta (Mantener igual...)
+    # --- 2. VALIDAR TARJETA ---
     card = db.query(Card).filter(Card.uid == payload['card_uid']).first()
     if not card: raise HTTPException(status_code=404, detail="Tarjeta no existe")
 
-    # 3. Preparar y llamar a PayU
-    payload['buyer_email'] = current_user.email
+    # --- 3. LLAMAR A PAYU ---
+    # Usamos el nombre del usuario logueado pero el email que viene del payload (editable)
     payload['buyer_name'] = current_user.full_name
     
-    # Pasamos IP y UserAgent al servicio
+    # El servicio PayU recibirá el email del payload, no forzado del user
     res, reference = PayUService.init_pse_payment(payload, client_ip, user_agent, base_url)
-    
+
     tx_res = res.get("transactionResponse", {})
-    state = tx_res.get("state") # APPROVED, PENDING, DECLINED, ERROR
-    print(state)
+    state = tx_res.get("state")
     # LÓGICA DE VALIDACIÓN ROBUSTA
     if state == "PENDING" and "extraParameters" in tx_res and "BANK_URL" in tx_res["extraParameters"]:
         # EXTRAEMOS EL CUS (Trazability Code en PayU)
@@ -108,32 +108,43 @@ async def payu_confirmation(request: Request, db: Session = Depends(get_db)):
         return {"message": "Firma inválida"}
 
     # 3. Buscar la transacción en nuestra DB
-    tx = db.query(Transaction).filter(Transaction.reference_code == reference).first()
+    # tx = db.query(Transaction).filter(Transaction.reference_code == reference).first()
+    tx = db.query(Transaction).options(joinedload(Transaction.card))\
+           .filter(Transaction.reference_code == reference).first()
     if not tx:
-        return {"message": "Referencia no encontrada"}
+        print(f"WEBHOOK ERROR: Referencia {reference} no encontrada")
+        return {"message": "Not found"}
 
     # 4. Si ya fue procesada, ignorar (PayU a veces envía varios avisos)
     if tx.status == "approved":
+        print(f"WEBHOOK ERROR: Transacción {reference} ya procesada")
         return {"message": "Ya procesada"}
-
-    # 5. Procesar según el estado de PayU
-    if state == "4": # APROBADO
-        tx.status = "approved"
-        tx.description = f"Recarga PSE exitosa (Ref: {form_data.get('transaction_id')})"
-        tx.cus = cus_banco if cus_banco else tx.cus # Actualizamos CUS final
-        # SUMAR SALDO A LA TARJETA
-        tx.card.balance += float(value)
-        db.add(tx.card)
-        
-    elif state == "6": # RECHAZADO
-        tx.status = "declined"
-        tx.description = "Recarga PSE rechazada por el banco"
     
-    elif state == "5": # EXPIRADO
-        tx.status = "expired"
-        tx.description = "Recarga PSE expirada (no pagó)"
+    try:
+        # 5. Procesar según el estado de PayU
+        if state == "4": # APROBADO
+            tx.status = "approved"
+            tx.description = f"Recarga PSE exitosa (Ref: {form_data.get('transaction_id')})"
+            tx.cus = cus_banco if cus_banco else tx.cus # Actualizamos CUS final
+            # SUMAR SALDO A LA TARJETA
+            tx.card.balance += float(value)
+            db.add(tx.card)
+            print(f"WEBHOOK SUCCESS: Saldo actualizado para tarjeta {tx.card.uid}")
+        
+        elif state == "6": # RECHAZADO
+            tx.status = "declined"
+            tx.description = "Recarga PSE rechazada por el banco"
+            print(f"WEBHOOK ERROR: Transacción {reference} rechazada")
+        
+        elif state == "5": # EXPIRADO
+            tx.status = "expired"
+            tx.description = "Recarga PSE expirada (no pagó)"
+            print(f"WEBHOOK ERROR: Transacción {reference} expirada")
 
-    db.commit()
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"WEBHOOK CRITICAL ERROR: {str(e)}")
     return {"message": "OK"}
 
 @router.get("/status/{reference_code}")
