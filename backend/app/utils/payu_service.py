@@ -141,7 +141,7 @@ class PayUService:
             },
             "test": settings.PAYU_IS_TEST
         }
-        
+        print(payload)
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         response = requests.post(settings.PAYU_URL, json=payload, headers=headers, timeout=20)
         return response.json(), reference
