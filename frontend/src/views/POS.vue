@@ -208,6 +208,7 @@ import { ref, computed, onMounted, nextTick } from 'vue';
 import api from '../api/axios';
 import { useAuthStore } from '../stores/auth';
 import { formatMoney } from '../utils/formatters';
+import { useConfigStore } from '../stores/config';
 const configStore = useConfigStore();
 
 const baseUrl = configStore.baseUrl;

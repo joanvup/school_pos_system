@@ -6,7 +6,7 @@ backend/.env
 
 # Node
 frontend/node_modules/
-frontend/dist/
+frontend/
 
 # Media/Uploads (En producción se manejan aparte)
 backend/uploads/*
