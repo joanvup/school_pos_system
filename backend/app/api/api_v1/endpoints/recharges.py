@@ -89,62 +89,60 @@ def init_recharge(
 
 @router.post("/payu-confirmation")
 async def payu_confirmation(request: Request, db: Session = Depends(get_db)):
-    """
-    Este es el Webhook. PayU lo llama por debajo.
-    """
-    # 1. Obtener datos de PayU (vienen como Form Data)
-    form_data = await request.form()
-    
+    # 1. Capturar todo lo que llega
+    try:
+        raw_body = await request.form()
+        form_data = dict(raw_body)
+        print(f"--- WEBHOOK INCOMING ---")
+        print(f"Payload: {form_data}")
+    except Exception as e:
+        print(f"ERROR: No se pudo leer el form de PayU: {e}")
+        return {"message": "Invalid form"}
+
+    # 2. Extraer datos con los nombres exactos de PayU
     merchant_id = form_data.get("merchant_id")
     reference = form_data.get("reference_sale")
     value = form_data.get("value")
     currency = form_data.get("currency")
     state = form_data.get("state_pol") # 4=Aprobado, 6=Rechazado
-    cus_banco = form_data.get("cus") # CUS que llega del banco en la confirmación
     incoming_sign = form_data.get("sign")
+    cus = form_data.get("cus")
 
-    # 2. Validar Firma
+    # 3. Validar Firma
     if not PayUService.verify_confirmation_signature(merchant_id, reference, value, currency, state, incoming_sign):
-        return {"message": "Firma inválida"}
+        print(f"WEBHOOK ERROR: Firma inválida para ref {reference}")
+        return {"message": "Invalid Signature"}
 
-    # 3. Buscar la transacción en nuestra DB
-    # tx = db.query(Transaction).filter(Transaction.reference_code == reference).first()
+    # 4. Procesar en Base de Datos
     tx = db.query(Transaction).options(joinedload(Transaction.card))\
            .filter(Transaction.reference_code == reference).first()
+           
     if not tx:
-        print(f"WEBHOOK ERROR: Referencia {reference} no encontrada")
-        return {"message": "Not found"}
+        print(f"WEBHOOK ERROR: Referencia {reference} no existe en DB local")
+        return {"message": "TX Not Found"}
 
-    # 4. Si ya fue procesada, ignorar (PayU a veces envía varios avisos)
     if tx.status == "approved":
-        print(f"WEBHOOK ERROR: Transacción {reference} ya procesada")
-        return {"message": "Ya procesada"}
-    
-    try:
-        # 5. Procesar según el estado de PayU
-        if state == "4": # APROBADO
-            tx.status = "approved"
-            tx.description = f"Recarga PSE exitosa (Ref: {form_data.get('transaction_id')})"
-            tx.cus = cus_banco if cus_banco else tx.cus # Actualizamos CUS final
-            # SUMAR SALDO A LA TARJETA
+        return {"message": "Already Approved"}
+
+    if state == "4": # APROBADO
+        tx.status = "approved"
+        tx.cus = cus
+        tx.description = f"Recarga PSE Aprobada (CUS: {cus})"
+        
+        # ACTUALIZAR SALDO
+        if tx.card:
             tx.card.balance += float(value)
             db.add(tx.card)
-            print(f"WEBHOOK SUCCESS: Saldo actualizado para tarjeta {tx.card.uid}")
-        
-        elif state == "6": # RECHAZADO
-            tx.status = "declined"
-            tx.description = "Recarga PSE rechazada por el banco"
-            print(f"WEBHOOK ERROR: Transacción {reference} rechazada")
-        
-        elif state == "5": # EXPIRADO
-            tx.status = "expired"
-            tx.description = "Recarga PSE expirada (no pagó)"
-            print(f"WEBHOOK ERROR: Transacción {reference} expirada")
-
+            db.commit()
+            print(f"✅ SALDO ACTUALIZADO: Tarjeta {tx.card.uid} +${value}")
+        else:
+            print("ERROR: Transacción no tiene tarjeta asociada")
+    else:
+        tx.status = "declined"
+        tx.description = f"Recarga PSE no aprobada. Estado PayU: {state}"
         db.commit()
-    except Exception as e:
-        db.rollback()
-        print(f"WEBHOOK CRITICAL ERROR: {str(e)}")
+        print(f"❌ TRANSACCIÓN RECHAZADA: Ref {reference}")
+
     return {"message": "OK"}
 
 @router.get("/status/{reference_code}")
