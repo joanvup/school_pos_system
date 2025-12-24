@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from app.models.user import Student
 from app.schemas.student import StudentCreate, StudentUpdate
+from sqlalchemy import and_, or_ 
 
 def create_student(db: Session, student: StudentCreate):
     db_student = Student(
@@ -20,9 +21,15 @@ def get_students(db: Session, skip: int = 0, limit: int = 100, search: str = Non
     query = db.query(Student)
     
     if search:
-        # Busca por nombre del estudiante
-        query = query.filter(Student.full_name.like(f"%{search}%"))
-        
+        search_words = search.strip().split()
+        if search_words:
+            conditions = []
+            for word in search_words:
+                # La palabra debe estar en el nombre completo
+                conditions.append(Student.full_name.ilike(f"%{word}%"))
+            
+            query = query.filter(and_(*conditions))
+            
     return query.offset(skip).limit(limit).all()
 
 def get_students_by_parent(db: Session, parent_id: int):

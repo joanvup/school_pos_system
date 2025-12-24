@@ -208,7 +208,12 @@ const loadData = async () => {
 const handleSearch = () => {
     page.value = 1;
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(loadData, 500);
+    searchTimer = setTimeout(() => {
+        // .trim() elimina espacios al inicio y final
+        // .replace(/\s+/g, ' ') convierte múltiples espacios en uno solo
+        const cleanQuery = searchQuery.value.trim().replace(/\s+/g, ' ');
+        loadData(cleanQuery); 
+    }, 500);
 };
 
 const nextPage = () => { page.value++; loadData(); };

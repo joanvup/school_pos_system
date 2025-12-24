@@ -91,7 +91,7 @@
            </div>
            <div>
              <label class="text-[10px] font-black text-gray-400 uppercase ml-2">Correo Institucional</label>
-             <input v-model="form.email" required type="email" :disabled="isEditing" class="w-full mt-1 p-3 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-primary font-bold disabled:opacity-50">
+             <input v-model="form.email" required type="email" class="w-full mt-1 p-3 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-primary font-bold disabled:opacity-50">
            </div>
            <div>
              <label class="text-[10px] font-black text-gray-400 uppercase ml-2">Rol de Acceso</label>
