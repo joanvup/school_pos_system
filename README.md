@@ -208,5 +208,5 @@ Funciones:
 
 ## 👨‍💻 Autor
 
-**Desarrollado por:** Joán Fuentes / Joánn'Soft Corp.
+**Desarrollado por:** Joán Fuentes / Joán'Soft Corp.
 copyright © 2025
