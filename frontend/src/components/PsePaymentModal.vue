@@ -34,11 +34,11 @@
               <!-- DATOS CONTACTO -->
               <div>
                   <label class="text-[10px] font-black text-gray-400 uppercase ml-2">Teléfono</label>
-                  <input v-model="form.phone" type="text" class="w-full mt-1 p-3 bg-gray-50 border-2 border-gray-100 rounded-xl text-sm outline-none focus:border-primary">
+                  <input v-model="form.phone" type="text" placeholder="1231111234" class="w-full mt-1 p-3 bg-gray-50 border-2 border-gray-100 rounded-xl text-sm font-bold outline-none focus:border-primary">
               </div>
               <div>
                   <label class="text-[10px] font-black text-gray-400 uppercase ml-2">Dirección</label>
-                  <input v-model="form.address" type="text" class="w-full mt-1 p-3 bg-gray-50 border-2 border-gray-100 rounded-xl text-sm outline-none focus:border-primary">
+                  <input v-model="form.address" type="text" placeholder="Calle 123 #4-56" class="w-full mt-1 p-3 bg-gray-50 border-2 border-gray-100 rounded-xl text-sm font-bold outline-none focus:border-primary">
               </div>
 
               <!-- BANCO -->
@@ -97,8 +97,8 @@ const form = reactive({
     buyer_dni: "",
     buyer_email: "", // <--- EDITABLE
     card_uid: "",
-    phone: "3000000000",
-    address: "Calle Principal"
+    phone: "",
+    address: ""
 });
 
 // Inicializar datos del usuario logueado al abrir
