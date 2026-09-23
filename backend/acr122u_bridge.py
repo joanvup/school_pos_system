@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.utils.acr122u_reader import (
     get_nfc_readers,
-    read_card_uid_once,
+    read_next_card_uid,
     send_keystrokes_windows,
     play_beep,
     SMARTCARD_AVAILABLE
@@ -91,10 +91,6 @@ def _log(message: str):
 
 
 def wedge_loop():
-    card_present = False
-    absent_count = 0
-    ABSENT_CYCLES_THRESHOLD = 4  # Requiere ~1.2s de ausencia continua para resetear
-
     _log("[NFC-BRIDGE] Servicio iniciado. Esperando lector ACR122U...")
 
     while STATE["running"]:
@@ -110,38 +106,21 @@ def wedge_loop():
                     play_beep(1800, 80)
                 else:
                     _log("[NFC-BRIDGE] Lector desconectado. Esperando reconexion...")
-                    card_present = False
-                    absent_count = 0
 
             if not reader_ok:
                 time.sleep(2)
                 continue
 
-            # Tarjeta presente: NO re-disparar ni martillar el lector.
-            # Solo comprobar (poll lento) que sigue apoyada para detectar su retiro.
-            if card_present:
-                if not read_card_uid_once():
-                    absent_count += 1
-                    if absent_count >= ABSENT_CYCLES_THRESHOLD:
-                        # La tarjeta se ha retirado fisicamente del lector
-                        card_present = False
-                        absent_count = 0
-                time.sleep(0.3)
-                continue
-
-            uid = read_card_uid_once()
+            # Espera POR ESTADO a que llegue una tarjeta NUEVA (sin APDUs en vacío).
+            # newcardonly=True: mientras la misma tarjeta esté apoyada no se re-lee,
+            # por lo que el lector nunca es golpeado con GetUID repetidos.
+            uid = read_next_card_uid(timeout=1.5)
 
             if uid:
-                # NUEVA LECTURA (DISPARAR SOLO UNA VEZ)
-                card_present = True
-                absent_count = 0
                 _log(f"[NFC-BRIDGE] Tarjeta detectada -> UID: {uid}")
                 play_beep(2500, 100)
                 send_keystrokes_windows(uid, press_enter=True)
                 STATE["reads"] += 1
-                time.sleep(0.3)
-            else:
-                time.sleep(0.1)
 
         except KeyboardInterrupt:
             break
@@ -171,25 +150,12 @@ def run_test_mode():
         print(f"  [{i}] {r}")
 
     print("\nAcerque una tarjeta NFC (Ctrl+C para salir)...\n")
-    card_present = False
-    absent_count = 0
     try:
         while True:
-            uid = read_card_uid_once()
+            uid = read_next_card_uid(timeout=1.0)
             if uid:
-                absent_count = 0
-                if not card_present:
-                    card_present = True
-                    play_beep(2500, 100)
-                    print(f"  [TAP] UID: {uid}  ({len(uid)//2} bytes)")
-                time.sleep(0.3)
-            else:
-                if card_present:
-                    absent_count += 1
-                    if absent_count >= 4:
-                        card_present = False
-                        absent_count = 0
-                time.sleep(0.1)
+                play_beep(2500, 100)
+                print(f"  [TAP] UID: {uid}  ({len(uid)//2} bytes)")
     except KeyboardInterrupt:
         print("\nPrueba finalizada.")
 

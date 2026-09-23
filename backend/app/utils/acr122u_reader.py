@@ -7,26 +7,26 @@ from typing import List, Optional
 try:
     from smartcard.System import readers
     from smartcard.CardConnection import CardConnection
-    from smartcard.Exceptions import NoCardException, CardConnectionException
+    from smartcard.CardRequest import CardRequest
+    from smartcard.CardType import AnyCardType
+    from smartcard.Exceptions import (
+        NoCardException,
+        CardConnectionException,
+        CardRequestTimeoutException,
+    )
     SMARTCARD_AVAILABLE = True
 except ImportError:
     SMARTCARD_AVAILABLE = False
 
 # Comando estándar APDU para obtener el UID de la tarjeta NFC (ISO 14443 Type A/B)
 APDU_GET_UID = [0xFF, 0xCA, 0x00, 0x00, 0x00]
-# Comando de control del ACR122U para apagar LEDs y buzzer (limpieza de estado)
-APDU_ACR122U_LED_RESET = [0xFF, 0x00, 0x40, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00]
 
-# --- Estado persistente de la sesión PC/SC ---
-# Reutilizamos UNA conexión y UNA caché de lectores para no abrir contextos
-# PC/SC nuevos (y sin cerrar) en cada lectura, causa de lectores bloqueados.
-_CONNECTION = None              # Conexión abierta reutilizada entre lecturas
-_CONNECTION_INDEX = None        # Índice del lector al que pertenece la conexión
+# Estado del módulo
 _CONNECTION_ERRORS = 0          # Fallos consecutivos de comunicación
-_READERS_CACHE = None           # Objetos Reader() cacheados (contexto reutilizado)
+_READERS_CACHE = None           # Caché de objetos Reader() para no enumerar a cada rato
 _READERS_CACHE_TIME = 0.0
 _READERS_CACHE_TTL = 5.0        # Re-enumerar lectores cada TTL seg
-_MAX_ERRORS = 3                 # Umbral de fallos antes de active backoff
+_MAX_ERRORS = 3                 # Umbral de fallos antes de activar backoff
 _BACKOFF_MAX = 2.0              # Tope del backoff exponencial en segundos
 
 
@@ -35,7 +35,7 @@ def _now() -> str:
 
 
 def _get_reader_list() -> List:
-    """Devuelve la lista cacheadas de objetos Reader() (contexto PC/SC reutilizado)."""
+    """Devuelve la lista de objetos Reader() con caché (TTL)."""
     global _READERS_CACHE, _READERS_CACHE_TIME
     if not SMARTCARD_AVAILABLE:
         return []
@@ -51,75 +51,14 @@ def _get_reader_list() -> List:
     return _READERS_CACHE
 
 
-def _close_connection(reset_card: bool = False):
-    """Cierra la sesión PC/SC e invalida la caché de lectores.
-
-    Si reset_card es True se hace un warm reset del PICC (SCARD_RESET_CARD),
-    que reinicia el estado del lector/tarjeta y limpia el estado de error
-    (LED parpadeando rápido) del ACR122U.
-    """
-    global _CONNECTION, _CONNECTION_INDEX, _READERS_CACHE, _READERS_CACHE_TIME
-    if _CONNECTION is not None:
-        try:
-            if reset_card:
-                _CONNECTION.disconnect(CardConnection.SCARD_RESET_CARD)
-            else:
-                _CONNECTION.disconnect()
-        except Exception:
-            pass
-        _CONNECTION = None
-    _CONNECTION_INDEX = None
-    _READERS_CACHE = None
-    _READERS_CACHE_TIME = 0.0
-
-
-def _connect(reader_index: int = 0):
-    """Conecta al lector reutilizando la sesión abierta, o crea una si no existe."""
-    global _CONNECTION, _CONNECTION_INDEX
-    reader_list = _get_reader_list()
-    if not reader_list or reader_index >= len(reader_list):
-        _close_connection()
-        return None
-
-    if _CONNECTION is not None and _CONNECTION_INDEX == reader_index:
-        return _CONNECTION
-
-    _close_connection()
-    try:
-        connection = reader_list[reader_index].createConnection()
-        connection.connect()
-    except Exception as e:
-        print(f"{_now()} [NFC] No se pudo conectar al lector {reader_index}: {e}")
-        return None
-
-    _CONNECTION = connection
-    _CONNECTION_INDEX = reader_index
-
-    # Devuelve el lector a un estado conocido: LEDs y buzzer apagados (best effort)
-    try:
-        connection.transmit(APDU_ACR122U_LED_RESET)
-    except Exception:
-        pass
-
-    return connection
-
-
 def get_nfc_readers() -> List[str]:
     """Obtiene la lista de nombres de lectores PC/SC conectados (con caché)."""
     return [str(r) for r in _get_reader_list()]
 
 
-def _handle_read_error(error: Exception, message: str):
-    """Registra el error, cierra la sesión con warm reset y aplica backoff."""
+def _backoff():
+    """Backoff exponencial (0.1s -> 0.2s -> 0.4s ... hasta 2s) ante errores repetidos."""
     global _CONNECTION_ERRORS
-    _CONNECTION_ERRORS += 1
-    print(f"{_now()} [NFC] {message} (intento {_CONNECTION_ERRORS}): {error}")
-
-    # Warm reset del PICC: limpia el estado de error del lector y la tarjeta
-    _close_connection(reset_card=True)
-
-    # Backoff exponencial (0.1s -> 0.2s -> 0.4s ... hasta 2s) para no martillar
-    # al lector cuando sigue en estado de error.
     if _CONNECTION_ERRORS >= _MAX_ERRORS:
         delay = min(0.1 * (2 ** (min(_CONNECTION_ERRORS, 5) - 1)), _BACKOFF_MAX)
         print(f"{_now()} [NFC] {_CONNECTION_ERRORS} fallos consecutivos. Reintentando en {delay:.1f}s...")
@@ -127,42 +66,121 @@ def _handle_read_error(error: Exception, message: str):
     return None
 
 
-def read_card_uid_once(reader_index: int = 0) -> Optional[str]:
-    """
-    Lee el UID de una tarjeta NFC colocada sobre el lector especificado.
-    Retorna el UID en formato hexadecimal en mayúsculas (ej: '04A1B2C3') o None.
+def _transmit_uid_with_retry(connection, retries: int = 3) -> Optional[str]:
+    """Transmite GetUID sobre una conexión ya abierta.
 
-    Reutiliza la misma sesión PC/SC entre lecturas para evitar fugas de
-    recursos. Ante errores de comunicación cierra la sesión con warm reset
-    del PICC y aplica backoff exponencial para no dejar el lector bloqueado.
+    Solo se usa justo después de que una tarjeta llega (un tope por tarjeta),
+    nunca sobre un lector vacío ni sobre una tarjeta ya leída/re-apoyada.
+    """
+    global _CONNECTION_ERRORS
+    for attempt in range(retries):
+        try:
+            response, sw1, sw2 = connection.transmit(APDU_GET_UID)
+        except NoCardException:
+            # La retiraron justo entre el evento y la lectura
+            return None
+        except CardConnectionException as e:
+            _CONNECTION_ERRORS += 1
+            print(f"{_now()} [NFC] Error de comunicación (intento {attempt + 1}/{retries}): {e}")
+            time.sleep(0.05 * (attempt + 1))
+            continue
+        except Exception as e:
+            print(f"{_now()} [NFC] Error inesperado al leer UID: {e}")
+            break
+
+        # 0x90 0x00 indica éxito en APDU
+        if sw1 == 0x90 and sw2 == 0x00:
+            _CONNECTION_ERRORS = 0
+            return "".join(f"{b:02X}" for b in response)
+
+        # Error APDU no crítico (tarjeta incompatible o en transición)
+        print(f"{_now()} [NFC] GetUID devolvió SW={sw1:02X}{sw2:02X}")
+        return None
+    return None
+
+
+def read_next_card_uid(reader_index: int = 0, timeout: float = 1.5) -> Optional[str]:
+    """Espera a que LLEGUE una tarjeta nueva y devuelve su UID.
+
+    Diseñado para no bloquear el ACR122U:
+    - La espera se hace por estado PC/SC (SCardGetStatusChange), SIN enviar
+      APDUs contra un lector vacío.
+    - newcardonly=True: mientras la misma tarjeta siga apoyada, NO se re-lee
+      (nada de GetUID repetido sobre una tarjeta activa, causa del bloqueo).
+
+    Devuelve el UID hex (ej: '04A1B2C3') o None si timeout/sin tarjeta.
     """
     global _CONNECTION_ERRORS
     if not SMARTCARD_AVAILABLE:
         return None
 
-    connection = _connect(reader_index)
-    if connection is None:
+    reader_list = _get_reader_list()
+    if not reader_list or reader_index >= len(reader_list):
         return None
 
     try:
-        response, sw1, sw2 = connection.transmit(APDU_GET_UID)
+        with CardRequest(
+            newcardonly=True,
+            readers=[reader_list[reader_index]],
+            cardType=AnyCardType(),
+            timeout=timeout,
+        ) as request:
+            try:
+                service = request.waitforcard()
+            except CardRequestTimeoutException:
+                # Sin tarjeta nueva en el tiempo esperado: vuelve a intentar sin ruido
+                return None
+
+            connection = service.connection
+            try:
+                connection.connect()
+                return _transmit_uid_with_retry(connection)
+            finally:
+                try:
+                    connection.disconnect()
+                except Exception:
+                    pass
+    except CardRequestTimeoutException:
+        return None
+    except Exception as e:
+        _CONNECTION_ERRORS += 1
+        print(f"{_now()} [NFC] Error en espera de tarjeta (intento {_CONNECTION_ERRORS}): {e}")
+        return _backoff()
+
+
+def read_card_uid_once(reader_index: int = 0) -> Optional[str]:
+    """Una lectura inmediata (sin espera). Útil para diagnóstico.
+
+    Devuelve el UID de la tarjeta si hay una sobre el lector, o None.
+    """
+    global _CONNECTION_ERRORS
+    if not SMARTCARD_AVAILABLE:
+        return None
+
+    reader_list = _get_reader_list()
+    if not reader_list or reader_index >= len(reader_list):
+        return None
+
+    try:
+        connection = reader_list[reader_index].createConnection()
+        connection.connect()
+        try:
+            return _transmit_uid_with_retry(connection)
+        finally:
+            try:
+                connection.disconnect()
+            except Exception:
+                pass
     except NoCardException:
-        # Sin tarjeta en el campo: situación normal, no es un error del lector.
-        _CONNECTION_ERRORS = 0
         return None
     except CardConnectionException as e:
-        return _handle_read_error(e, "Error de comunicación con el lector")
+        _CONNECTION_ERRORS += 1
+        print(f"{_now()} [NFC] Error de comunicación en lectura directa: {e}")
+        return _backoff()
     except Exception as e:
-        return _handle_read_error(e, "Error inesperado al leer tarjeta")
-
-    # 0x90 0x00 indica éxito en APDU
-    if sw1 == 0x90 and sw2 == 0x00:
-        _CONNECTION_ERRORS = 0
-        return "".join(f"{b:02X}" for b in response)
-
-    # Respuesta sin error pero sin tarjeta válida reconocida
-    _CONNECTION_ERRORS = 0
-    return None
+        _CONNECTION_ERRORS += 1
+        print(f"{_now()} [NFC] Error inesperado en lectura directa: {e}")
+        return _backoff()
 
 
 def play_beep(freq: int = 2500, duration_ms: int = 100):
