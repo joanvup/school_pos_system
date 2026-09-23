@@ -44,7 +44,7 @@
           <tr class="text-[10px] font-black text-gray-400 uppercase tracking-widest">
             <th class="px-8 py-5 text-left">Información del Estudiante</th>
             <th class="px-8 py-5 text-left">Padre / Acudiente</th>
-            <th class="px-8 py-5 text-left">Tarjeta RFID y Saldo</th>
+            <th class="px-8 py-5 text-left">Tarjeta NFC y Saldo</th>
             <th class="px-8 py-5 text-right">Gestión</th>
           </tr>
         </thead>
@@ -134,7 +134,7 @@
             {{ isReplacement ? 'Reemplazar Tarjeta' : 'Vincular Tarjeta' }}
         </h3>
         <p class="text-gray-500 text-sm font-medium mb-8 leading-tight">
-            {{ isReplacement ? 'Se asignará un nuevo chip físico. El historial y el saldo se mantendrán intactos.' : 'Acerque la tarjeta física al lector para realizar el registro inicial.' }}
+            {{ isReplacement ? 'Se asignará una nueva tarjeta NFC física. El historial y el saldo se mantendrán intactos.' : 'Acerque la tarjeta NFC al lector ACR122U para realizar el registro inicial.' }}
         </p>
         
         <div class="bg-blue-50 p-4 rounded-2xl mb-6">
@@ -258,33 +258,40 @@ const openCardModal = (student) => {
     }, 200);
 };
 
+const cardProcessing = ref(false);
+
 const handleCardAction = async () => {
-    if(!cardUid.value) return;
+    if(!cardUid.value || cardProcessing.value) return;
+    cardProcessing.value = true;
     cardError.value = '';
+    const cleanUid = cardUid.value.trim().replace(/[:\s-]/g, '').toUpperCase();
+    cardUid.value = '';
 
     try {
         if (isReplacement.value) {
             // Reemplazo: Mantiene el registro de tarjeta pero cambia el UID físico
             await api.post('/cards/replace', {
                 old_uid: selectedStudent.value.card.uid,
-                new_uid: cardUid.value
+                new_uid: cleanUid
             });
-            alert("✅ Tarjeta reemplazada exitosamente. El saldo se ha preservado.");
+            alert("✅ Tarjeta NFC reemplazada exitosamente. El saldo se ha preservado.");
         } else {
             // Vinculación Nueva
             await api.post('/cards/', {
-                uid: cardUid.value,
+                uid: cleanUid,
                 student_id: selectedStudent.value.id,
                 daily_limit: 50000 // Valor por defecto
             });
-            alert("✅ Tarjeta vinculada al estudiante correctamente.");
+            alert("✅ Tarjeta NFC vinculada al estudiante correctamente.");
         }
         showCardModal.value = false;
         loadData();
     } catch (error) {
-        cardError.value = error.response?.data?.detail || "No se pudo procesar la tarjeta";
+        cardError.value = error.response?.data?.detail || "No se pudo procesar la tarjeta NFC";
         cardUid.value = '';
         cardInput.value?.focus();
+    } finally {
+        cardProcessing.value = false;
     }
 };
 

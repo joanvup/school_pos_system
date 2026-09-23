@@ -3,6 +3,119 @@ from app.models.user import User, Student, UserRole
 import pandas as pd
 from sqlalchemy.orm import Session 
 import io
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
+def generate_students_template() -> io.BytesIO:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Estudiantes y Padres"
+
+    headers = [
+        "parent_email",
+        "parent_name",
+        "student_name",
+        "grade",
+        "parent_password"
+    ]
+
+    sample_data = [
+        ["padre1@ejemplo.com", "Carlos Perez", "Juan Perez", "10-A", "123456"],
+        ["padre1@ejemplo.com", "Carlos Perez", "Maria Perez", "6-B", "123456"],
+        ["padre2@ejemplo.com", "Ana Gomez", "Santiago Gomez", "11-C", "claveSegura123"],
+    ]
+
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="1E40AF", end_color="1E40AF", fill_type="solid")
+    center_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style='thin', color='D1D5DB'),
+        right=Side(style='thin', color='D1D5DB'),
+        top=Side(style='thin', color='D1D5DB'),
+        bottom=Side(style='thin', color='D1D5DB')
+    )
+
+    ws.append(headers)
+    for col_num in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_alignment
+        cell.border = thin_border
+
+    for row_idx, row_data in enumerate(sample_data, start=2):
+        ws.append(row_data)
+        for col_num in range(1, len(row_data) + 1):
+            cell = ws.cell(row=row_idx, column=col_num)
+            cell.border = thin_border
+            cell.alignment = Alignment(vertical="center")
+
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        col_letter = get_column_letter(col[0].column)
+        ws.column_dimensions[col_letter].width = max(max_len + 5, 18)
+
+    ws.row_dimensions[1].height = 28
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
+def generate_employees_template() -> io.BytesIO:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Empleados y Staff"
+
+    headers = [
+        "email",
+        "full_name",
+        "password"
+    ]
+
+    sample_data = [
+        ["docente1@colegio.edu.co", "Roberto Gomez", "empleado123"],
+        ["staff1@colegio.edu.co", "Laura Martinez", "claveSegura2026"],
+        ["mantenimiento1@colegio.edu.co", "Pedro Sanchez", "empleado123"],
+    ]
+
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="1E40AF", end_color="1E40AF", fill_type="solid")
+    center_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style='thin', color='D1D5DB'),
+        right=Side(style='thin', color='D1D5DB'),
+        top=Side(style='thin', color='D1D5DB'),
+        bottom=Side(style='thin', color='D1D5DB')
+    )
+
+    ws.append(headers)
+    for col_num in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_alignment
+        cell.border = thin_border
+
+    for row_idx, row_data in enumerate(sample_data, start=2):
+        ws.append(row_data)
+        for col_num in range(1, len(row_data) + 1):
+            cell = ws.cell(row=row_idx, column=col_num)
+            cell.border = thin_border
+            cell.alignment = Alignment(vertical="center")
+
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        col_letter = get_column_letter(col[0].column)
+        ws.column_dimensions[col_letter].width = max(max_len + 5, 20)
+
+    ws.row_dimensions[1].height = 28
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
 
 def process_students_file(file_content, db: Session, task_id: str, progress_dict: dict):
     try:

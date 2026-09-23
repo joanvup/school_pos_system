@@ -13,7 +13,7 @@ Diseñada para eliminar el uso de efectivo dentro del colegio, permite pagos rá
 ## 🚀 Características Principales
 
 - 💳 **Ecosistema Cashless**  
-  Pagos con tarjetas inteligentes RFID/NFC vinculadas a estudiantes y empleados.
+  Pagos con tarjetas inteligentes NFC (Mifare / ISO 14443A) y lectores NFC ACR122U vinculadas a estudiantes y empleados.
 
 - 💰 **Pasarela de Pagos**  
   Integración nativa con **PayU Colombia (PSE)** para recargas de saldo seguras.
@@ -159,7 +159,7 @@ Funciones:
 
 ### 🛒 Vendedor (Cajero)
 
-- Módulo POS con lectura de tarjetas RFID.
+- Módulo POS con lectura de tarjetas NFC mediante lector ACR122U.
 - Identificación del usuario, validación de saldo y cupo diario.
 - Reversión de ventas recientes (según permisos).
 

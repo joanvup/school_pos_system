@@ -13,12 +13,35 @@
     </div>
 
     <div class="bg-white p-8 rounded-2xl shadow-xl max-w-2xl mx-auto border border-gray-100">
-      <div class="text-center mb-8">
+      <div class="text-center mb-6">
         <div class="text-5xl mb-4">{{ importType === 'students' ? '🏫' : '🏢' }}</div>
         <h2 class="text-xl font-bold text-gray-700">Importar y Actualizar Datos</h2>
         <p class="text-gray-400 text-sm mt-2">
             Si el registro ya existe (por email), el sistema actualizará los nombres y contraseñas automáticamente.
         </p>
+      </div>
+
+      <!-- DESCARGA DE PLANTILLAS -->
+      <div class="mb-6 p-4 bg-blue-50 border border-blue-100 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div class="text-left">
+            <div class="text-sm font-bold text-blue-900 flex items-center gap-1">
+                📄 {{ importType === 'students' ? 'Plantilla: Estudiantes y Padres' : 'Plantilla: Empleados y Staff' }}
+            </div>
+            <div class="text-xs text-blue-700 mt-1">
+                {{ importType === 'students' 
+                    ? 'Columnas: parent_email, parent_name, student_name, grade, parent_password' 
+                    : 'Columnas: email, full_name, password' }}
+            </div>
+        </div>
+        <button 
+            type="button"
+            @click="downloadTemplate" 
+            :disabled="downloadingTemplate"
+            class="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow transition-all duration-200 whitespace-nowrap disabled:opacity-50"
+        >
+            <span v-if="downloadingTemplate">Descargando...</span>
+            <span v-else>📥 Descargar Plantilla Excel</span>
+        </button>
       </div>
 
       <!-- ZONA DE CARGA -->
@@ -99,6 +122,34 @@ const selectedFile = ref(null);
 const uploading = ref(false);
 const uploadProgress = ref(0);
 const result = ref(null);
+const downloadingTemplate = ref(false);
+
+const downloadTemplate = async () => {
+    downloadingTemplate.value = true;
+    const type = importType.value;
+    const filename = type === 'students' 
+        ? 'plantilla_estudiantes_padres.xlsx' 
+        : 'plantilla_empleados_staff.xlsx';
+
+    try {
+        const response = await api.get(`/import/template/${type}`, {
+            responseType: 'blob'
+        });
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error('Error al descargar plantilla:', error);
+        alert('Error al descargar la plantilla de Excel.');
+    } finally {
+        downloadingTemplate.value = false;
+    }
+};
 
 const handleFileChange = (e) => {
     selectedFile.value = e.target.files[0];

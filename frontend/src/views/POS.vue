@@ -150,7 +150,10 @@
         <div class="bg-white rounded-[40px] shadow-2xl p-6 md:p-10 max-w-md w-full text-center relative border-4 md:border-8 border-gray-100">
             <div v-if="!stepIdentified" class="space-y-6">
                 <div class="text-6xl animate-pulse">💳</div>
-                <h3 class="text-2xl font-black text-gray-900 tracking-tighter uppercase italic">Esperando Tarjeta</h3>
+                <div>
+                    <h3 class="text-2xl font-black text-gray-900 tracking-tighter uppercase italic">Esperando Tarjeta NFC</h3>
+                    <p class="text-xs text-gray-400 font-bold mt-1">Acerque la tarjeta al lector NFC ACR122U</p>
+                </div>
                 <input ref="rfidInput" v-model="rfidCode" @keyup.enter="identifyCard" type="password" class="w-full border-4 border-blue-100 bg-gray-50 rounded-2xl p-4 text-center text-2xl font-black text-primary outline-none" placeholder="••••••">
                 <button @click="closeModal" class="w-full py-4 bg-red-50 text-red-600 rounded-2xl font-black text-xs uppercase tracking-widest">Cancelar</button>
             </div>
@@ -272,10 +275,15 @@ const resetModal = () => {
     setTimeout(() => rfidInput.value?.focus(), 100); 
 };
 
+const identifying = ref(false);
+
 const identifyCard = async () => {
-    if (!rfidCode.value) return;
+    if (!rfidCode.value || identifying.value || processing.value) return;
+    identifying.value = true;
+    const cleanUid = rfidCode.value.trim().replace(/[:\s-]/g, '').toUpperCase();
+    rfidCode.value = ''; // Limpiar de inmediato el campo para evitar acumulaciones
     try {
-        const { data } = await api.get(`/cards/check/${rfidCode.value}`);
+        const { data } = await api.get(`/cards/check/${cleanUid}`);
         cardHolder.value = {
             uid: data.uid,
             name: data.owner_name,
@@ -284,9 +292,11 @@ const identifyCard = async () => {
         };
         stepIdentified.value = true;
     } catch (e) {
-        alert("Tarjeta no reconocida");
+        alert("Tarjeta NFC no reconocida");
         rfidCode.value = '';
         setTimeout(() => rfidInput.value?.focus(), 100);
+    } finally {
+        identifying.value = false;
     }
 };
 

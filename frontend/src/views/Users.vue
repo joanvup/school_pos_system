@@ -32,7 +32,7 @@
           <tr class="text-[10px] font-black text-gray-400 uppercase tracking-widest">
             <th class="px-6 py-4 text-left">Información Personal</th>
             <th class="px-6 py-4 text-left">Rol</th>
-            <th class="px-6 py-4 text-left">Tarjeta RFID / Saldo</th>
+            <th class="px-6 py-4 text-left">Tarjeta NFC / Saldo</th>
             <th class="px-6 py-4 text-right">Acciones</th>
           </tr>
         </thead>
@@ -124,7 +124,7 @@
             {{ isReplacement ? 'Reemplazar Tarjeta' : 'Vincular Tarjeta' }}
         </h3>
         <p class="text-gray-500 text-sm font-medium mb-8">
-            {{ isReplacement ? 'La tarjeta anterior será anulada y el saldo pasará a la nueva.' : 'Acerque la tarjeta física al lector ahora.' }}
+            {{ isReplacement ? 'La tarjeta NFC anterior será anulada y el saldo pasará a la nueva.' : 'Acerque la tarjeta NFC al lector ACR122U ahora.' }}
         </p>
         
         <div class="mb-6">
@@ -241,26 +241,31 @@ const openCardModal = (user) => {
     }, 200);
 };
 
+const cardProcessing = ref(false);
+
 const handleCardAction = async () => {
-    if(!cardUid.value) return;
+    if(!cardUid.value || cardProcessing.value) return;
+    cardProcessing.value = true;
     cardError.value = '';
+    const cleanUid = cardUid.value.trim().replace(/[:\s-]/g, '').toUpperCase();
+    cardUid.value = '';
 
     try {
         if (isReplacement.value) {
             // Caso 1: Reemplazo (POST /cards/replace)
             await api.post('/cards/replace', {
                 old_uid: selectedUser.value.card.uid,
-                new_uid: cardUid.value
+                new_uid: cleanUid
             });
-            alert("✅ Tarjeta reemplazada. El saldo se mantuvo en la nueva cuenta.");
+            alert("✅ Tarjeta NFC reemplazada. El saldo se mantuvo en la nueva cuenta.");
         } else {
             // Caso 2: Vinculación Nueva (POST /cards/)
             await api.post('/cards/', {
-                uid: cardUid.value,
+                uid: cleanUid,
                 user_id: selectedUser.value.id,
                 daily_limit: 100000
             });
-            alert("✅ Nueva tarjeta vinculada exitosamente.");
+            alert("✅ Nueva tarjeta NFC vinculada exitosamente.");
         }
         showCardModal.value = false;
         loadUsers();
@@ -268,6 +273,8 @@ const handleCardAction = async () => {
         cardError.value = error.response?.data?.detail || "Error en la operación";
         cardUid.value = '';
         cardInput.value?.focus();
+    } finally {
+        cardProcessing.value = false;
     }
 };
 

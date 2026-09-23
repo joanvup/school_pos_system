@@ -5,12 +5,14 @@ from datetime import datetime
 from app.models.card import Card, Transaction, TransactionDetail, TransactionType, CardStatus
 from app.models.product import Product
 from app.models.user import User
+from app.crud.crud_card import normalize_card_uid
 
 def process_sale(db: Session, sale_in: dict):
     # 1. Buscar y Validar Tarjeta
-    card = db.query(Card).filter(Card.uid == sale_in.card_uid).first()
+    clean_uid = normalize_card_uid(sale_in.card_uid)
+    card = db.query(Card).filter(Card.uid == clean_uid).first()
     if not card:
-        raise HTTPException(status_code=404, detail="Tarjeta no encontrada")
+        raise HTTPException(status_code=404, detail="Tarjeta NFC no encontrada")
     
     if card.status != CardStatus.ACTIVE:
         raise HTTPException(status_code=400, detail="La tarjeta está bloqueada o inactiva")

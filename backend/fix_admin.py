@@ -6,12 +6,13 @@ sys.path.append(os.getcwd())
 
 from app.db.session import SessionLocal
 from app.db.base import Base # <--- Esto carga TODOS los modelos (User, Card, Student, etc.)
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.core.security import get_password_hash
 
 def fix():
     db = SessionLocal()
     admin_email = "admin@school.com"
+    nueva_clave = "admin123_seguro"
     
     try:
         # Buscamos al usuario
@@ -19,20 +20,33 @@ def fix():
         
         if user:
             # Generamos el hash de la nueva contraseña
-            nueva_clave = "admin123_seguro"
             user.hashed_password = get_password_hash(nueva_clave)
-            
+            user.is_active = True
+            user.role = UserRole.ADMIN
             db.commit()
-            print(f"\n" + "="*50)
-            print(f"✅ ÉXITO: Contraseña restaurada.")
-            print(f"📧 Usuario: {admin_email}")
-            print(f"🔑 Nueva Clave: {nueva_clave}")
+            print("\n" + "="*50)
+            print("EXITO: Contrasena restaurada.")
+            print(f"Usuario: {admin_email}")
+            print(f"Clave: {nueva_clave}")
             print("="*50 + "\n")
         else:
-            print(f"❌ ERROR: No se encontró ningún usuario con el email: {admin_email}")
+            user = User(
+                full_name="Administrador del Sistema",
+                email=admin_email,
+                hashed_password=get_password_hash(nueva_clave),
+                role=UserRole.ADMIN,
+                is_active=True
+            )
+            db.add(user)
+            db.commit()
+            print("\n" + "="*50)
+            print("EXITO: Usuario administrador creado.")
+            print(f"Usuario: {admin_email}")
+            print(f"Clave: {nueva_clave}")
+            print("="*50 + "\n")
             
     except Exception as e:
-        print(f"❌ Ocurrió un error inesperado: {e}")
+        print(f"ERROR: Ocurrio un error inesperado: {e}")
     finally:
         db.close()
 
