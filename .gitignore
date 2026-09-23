@@ -1,11 +1,19 @@
 # Python
 backend/venv/
-backend/__pycache__/
-backend/*.pyc
+__pycache__/
+*.pyc
 backend/.env
 
+# Builds / Artefactos generados
+backend/dist/
+backend/build/
+frontend/dist/
+frontend/dist.zip
+*.pyo
+
 # Node
-cd ..node_modules/
+node_modules/
+frontend/node_modules/
 
 # Media/Uploads (En producción se manejan aparte)
 backend/uploads/*

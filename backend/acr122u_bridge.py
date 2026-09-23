@@ -5,6 +5,7 @@ import threading
 import argparse
 import ctypes
 import winsound
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -85,12 +86,16 @@ def run_tray():
     STATE["tray_icon"] = icon
     icon.run()
 
+def _log(message: str):
+    print(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {message}")
+
+
 def wedge_loop():
     card_present = False
     absent_count = 0
-    ABSENT_CYCLES_THRESHOLD = 4  # Requiere ~400ms de ausencia continua para resetear
+    ABSENT_CYCLES_THRESHOLD = 4  # Requiere ~1.2s de ausencia continua para resetear
 
-    print("[NFC-BRIDGE] Servicio iniciado. Esperando lector ACR122U...")
+    _log("[NFC-BRIDGE] Servicio iniciado. Esperando lector ACR122U...")
 
     while STATE["running"]:
         try:
@@ -101,10 +106,10 @@ def wedge_loop():
                 STATE["connected"] = reader_ok
                 update_tray(STATE["tray_icon"], reader_ok)
                 if reader_ok:
-                    print(f"[NFC-BRIDGE] Lector detectado: {available[0]}")
+                    _log(f"[NFC-BRIDGE] Lector detectado: {available[0]}")
                     play_beep(1800, 80)
                 else:
-                    print("[NFC-BRIDGE] Lector desconectado. Esperando reconexion...")
+                    _log("[NFC-BRIDGE] Lector desconectado. Esperando reconexion...")
                     card_present = False
                     absent_count = 0
 
@@ -112,35 +117,39 @@ def wedge_loop():
                 time.sleep(2)
                 continue
 
-            uid = read_card_uid_once()
-
-            if uid:
-                absent_count = 0
-                if not card_present:
-                    # NUEVA LECTURA (DISPARAR SOLO UNA VEZ)
-                    card_present = True
-                    print(f"[NFC-BRIDGE] Tarjeta detectada -> UID: {uid}")
-                    play_beep(2500, 100)
-                    send_keystrokes_windows(uid, press_enter=True)
-                    STATE["reads"] += 1
-                    time.sleep(0.3)
-                # Si la tarjeta sigue apoyada sobre el lector, no hacer nada
-            else:
-                if card_present:
+            # Tarjeta presente: NO re-disparar ni martillar el lector.
+            # Solo comprobar (poll lento) que sigue apoyada para detectar su retiro.
+            if card_present:
+                if not read_card_uid_once():
                     absent_count += 1
                     if absent_count >= ABSENT_CYCLES_THRESHOLD:
                         # La tarjeta se ha retirado fisicamente del lector
                         card_present = False
                         absent_count = 0
+                time.sleep(0.3)
+                continue
 
-            time.sleep(0.1)
+            uid = read_card_uid_once()
+
+            if uid:
+                # NUEVA LECTURA (DISPARAR SOLO UNA VEZ)
+                card_present = True
+                absent_count = 0
+                _log(f"[NFC-BRIDGE] Tarjeta detectada -> UID: {uid}")
+                play_beep(2500, 100)
+                send_keystrokes_windows(uid, press_enter=True)
+                STATE["reads"] += 1
+                time.sleep(0.3)
+            else:
+                time.sleep(0.1)
 
         except KeyboardInterrupt:
             break
         except Exception as e:
+            _log(f"[NFC-BRIDGE] Error inesperado en el bucle: {e}")
             time.sleep(1)
 
-    print("[NFC-BRIDGE] Servicio detenido.")
+    _log("[NFC-BRIDGE] Servicio detenido.")
 
 def run_test_mode():
     print("=" * 60)
@@ -173,14 +182,14 @@ def run_test_mode():
                     card_present = True
                     play_beep(2500, 100)
                     print(f"  [TAP] UID: {uid}  ({len(uid)//2} bytes)")
-                    time.sleep(0.2)
+                time.sleep(0.3)
             else:
                 if card_present:
                     absent_count += 1
                     if absent_count >= 4:
                         card_present = False
                         absent_count = 0
-            time.sleep(0.1)
+                time.sleep(0.1)
     except KeyboardInterrupt:
         print("\nPrueba finalizada.")
 
