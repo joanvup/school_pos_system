@@ -312,7 +312,12 @@ const confirmCardLinking = async () => {
         loadUsers();
     } catch (error) {
         cardError.value = error.response?.data?.detail || "Error en la operación";
-        resetCardScan();
+        confirmStep.value = false;
+        pendingUid.value = '';
+        cardUid.value = '';
+        setTimeout(() => {
+            if(cardInput.value) cardInput.value.focus();
+        }, 200);
     } finally {
         cardProcessing.value = false;
     }

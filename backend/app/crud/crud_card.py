@@ -94,3 +94,31 @@ def unlink_card(db: Session, card: Card, actor_id: int):
     db.commit()
     db.refresh(card)
     return card
+
+def relink_card(db: Session, db_card: Card, student_id, user_id, daily_limit, actor_id):
+    """
+    Re-vincula una tarjeta NFC previamente desvinculada a un estudiante o empleado.
+    La reactiva y conserva su saldo e historial.
+    """
+    owner = None
+    if student_id:
+        db_card.student_id = student_id
+        db_card.user_id = None  # Una tarjeta pertenece a UN solo dueño
+        owner = f"Estudiante ID {student_id}"
+    elif user_id:
+        db_card.user_id = user_id
+        db_card.student_id = None
+        owner = f"Empleado ID {user_id}"
+
+    db_card.status = CardStatus.ACTIVE
+    if daily_limit is not None:
+        db_card.daily_limit = daily_limit
+
+    # Registrar en Auditoría
+    details = f"Re-vinculación de tarjeta NFC UID {db_card.uid} a {owner or 'Desconocido'}. Saldo conservado: {db_card.balance}"
+    audit = AuditLog(user_id=actor_id, action="LINK_CARD", details=details)
+
+    db.add(audit)
+    db.commit()
+    db.refresh(db_card)
+    return db_card

@@ -327,7 +327,12 @@ const confirmCardLinking = async () => {
         loadData();
     } catch (error) {
         cardError.value = error.response?.data?.detail || "No se pudo procesar la tarjeta NFC";
-        resetCardScan();
+        confirmStep.value = false;
+        pendingUid.value = '';
+        cardUid.value = '';
+        setTimeout(() => {
+            if(cardInput.value) cardInput.value.focus();
+        }, 200);
     } finally {
         cardProcessing.value = false;
     }

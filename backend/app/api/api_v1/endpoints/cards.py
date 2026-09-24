@@ -78,20 +78,39 @@ def assign_card(
 ):
     """
     Asignar una tarjeta nueva a un estudiante o empleado.
+    Si la tarjeta física ya existe pero está desvinculada, se re-vincula y activa.
     """
-    # 1. Verificar si la tarjeta ya existe (el plástico físico)
-    existing_card = crud_card.get_card_by_uid(db, uid=card.uid)
-    if existing_card:
-        raise HTTPException(status_code=400, detail="Esta tarjeta ya está registrada en el sistema.")
-
-    # 2. Verificar que el estudiante exista (si aplica)
+    # 1. Verificar que el estudiante exista y no tenga ya una tarjeta (si aplica)
     if card.student_id:
         student = crud_student.get_student(db, student_id=card.student_id)
         if not student:
             raise HTTPException(status_code=404, detail="Estudiante no encontrado.")
-        # Verificar si el estudiante ya tiene tarjeta
         if student.card:
-             raise HTTPException(status_code=400, detail="Este estudiante ya tiene una tarjeta asignada.")
+            raise HTTPException(status_code=400, detail="Este estudiante ya tiene una tarjeta asignada.")
+
+    # 2. Verificar que el usuario exista y no tenga ya una tarjeta (si aplica)
+    if card.user_id:
+        user = db.query(User).filter(User.id == card.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+        user_has_card = db.query(Card).filter(Card.user_id == card.user_id).first()
+        if user_has_card:
+            raise HTTPException(status_code=400, detail="Este usuario ya tiene una tarjeta asignada.")
+
+    # 3. Verificar si la tarjeta física ya está registrada en el sistema
+    existing_card = crud_card.get_card_by_uid(db, uid=card.uid)
+    if existing_card:
+        # Si existe pero NO está vinculada a nadie, se re-vincula y se activa
+        if existing_card.student_id is None and existing_card.user_id is None:
+            return crud_card.relink_card(
+                db,
+                db_card=existing_card,
+                student_id=card.student_id,
+                user_id=card.user_id,
+                daily_limit=card.daily_limit,
+                actor_id=current_user.id
+            )
+        raise HTTPException(status_code=400, detail="Esta tarjeta ya está registrada en el sistema.")
 
     return crud_card.create_card(db=db, card=card)
 
