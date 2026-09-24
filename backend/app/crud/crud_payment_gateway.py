@@ -9,7 +9,25 @@ DEFAULT_PROVIDERS = [
 ]
 
 
+def _dedupe_gateways(db: Session):
+    """Elimina filas duplicadas por gateway conservando el id más bajo."""
+    rows = db.query(PaymentGatewaySetting).order_by(PaymentGatewaySetting.id).all()
+    seen = set()
+    to_delete = []
+    for r in rows:
+        if r.gateway in seen:
+            to_delete.append(r)
+        else:
+            seen.add(r.gateway)
+    for r in to_delete:
+        db.delete(r)
+    if to_delete:
+        db.commit()
+        print(f"[SEED] Eliminadas {len(to_delete)} filas duplicadas de payment_gateway_settings")
+
+
 def list_providers(db: Session):
+    _dedupe_gateways(db)
     rows = db.query(PaymentGatewaySetting).order_by(PaymentGatewaySetting.id).all()
     if rows:
         return rows
@@ -19,6 +37,7 @@ def list_providers(db: Session):
 
 
 def seed_gateway_settings(db: Session):
+    _dedupe_gateways(db)
     for data in DEFAULT_PROVIDERS:
         exists = (
             db.query(PaymentGatewaySetting)
