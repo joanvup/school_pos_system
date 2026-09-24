@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from app.db.session import engine
 from app.db.base import Base
 from app.api.api_v1.api import api_router
@@ -7,8 +8,46 @@ from app.core.config import settings
 from fastapi.staticfiles import StaticFiles # Importar
 import os
 
+# Migraciones de columnas idempotentes.
+# create_all() NO agrega columnas a tablas existentes, por eso revisamos
+# information_schema y ejecutamos el ALTER solo si la columna no existe.
+MIGRATIONS = [
+    ("students", "ADD COLUMN pending_balance FLOAT NOT NULL DEFAULT 0"),
+    ("users", "ADD COLUMN pending_balance FLOAT NOT NULL DEFAULT 0"),
+]
+
+def _column_exists(table: str, column: str) -> bool:
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                "WHERE table_schema = DATABASE() AND table_name = :t AND column_name = :c"
+            ),
+            {"t": table, "c": column},
+        )
+        return result.scalar() > 0
+
+def run_safe_migrations():
+    for table, column_ddl in MIGRATIONS:
+        column = column_ddl.replace("ADD COLUMN ", "").split(" ")[0]
+        if _column_exists(table, column):
+            continue
+        sql = f"ALTER TABLE {table} {column_ddl}"
+        print(f"[MIGRACION] Ejecutando: {sql}")
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(sql))
+        except Exception as e:
+            # Si el usuario de BD no tiene permisos, avisamos claramente y dejamos
+            # el SQL que debe ejecutarse manualmente para no romper el arranque.
+            print(f"[MIGRACION][ERROR] No se pudo ejecutar '{sql}': {e}")
+            print(f"[MIGRACION][MANUAL] Ejecuta manualmente en la BD: {sql}")
+
 # Crear tablas
 Base.metadata.create_all(bind=engine)
+
+# Aplicar migraciones pendientes
+run_safe_migrations()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
