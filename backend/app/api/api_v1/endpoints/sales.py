@@ -27,13 +27,22 @@ def get_recent_sales(db: Session = Depends(get_db)):
     """Obtiene las últimas 5 ventas para el POS"""
     sales = db.query(Transaction).filter(Transaction.type == TransactionType.PURCHASE)\
               .order_by(Transaction.timestamp.desc()).limit(5).all()
-    return [{
-        "id": s.id,
-        "timestamp": s.timestamp,
-        "amount": abs(s.amount),
-        "comprador": s.card.student.full_name if s.card.student else s.card.employee.full_name,
-        "status": s.status
-    } for s in sales]
+    result = []
+    for s in sales:
+        # La tarjeta de una venta puede estar desvinculada (sin estudiante ni empleado)
+        comprador = "Tarjeta sin asignar"
+        if s.card and s.card.student:
+            comprador = s.card.student.full_name
+        elif s.card and s.card.employee:
+            comprador = s.card.employee.full_name
+        result.append({
+            "id": s.id,
+            "timestamp": s.timestamp,
+            "amount": abs(s.amount),
+            "comprador": comprador,
+            "status": s.status
+        })
+    return result
 
 @router.post("/reverse/{transaction_id}")
 def void_sale(transaction_id: int, db: Session = Depends(get_db), current_user: User = Depends(deps.get_current_active_admin)):

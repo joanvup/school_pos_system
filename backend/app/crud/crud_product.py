@@ -9,26 +9,16 @@ from app.models.category import Category
 def get_product(db: Session, product_id: int):
     return db.query(Product).filter(Product.id == product_id).first()
 
-#def get_products(db: Session, skip: int = 0, limit: int = 100):
-#    return db.query(Product)\
-#        .options(joinedload(Product.category_rel))\
-#        .filter(Product.is_active == True)\
-#        .offset(skip).limit(limit).all()
-def get_products(db: Session, skip: int = 0, limit: int = 100):
-    # 1. Usamos joinedload para traer la categoría en una sola consulta
-    # 2. Ordenamos por el nombre de la categoría y luego por el nombre del producto
-    return db.query(Product)\
+def get_products(db: Session, skip: int = 0, limit: int = 100, category: str = None):
+    # joinedload trae la categoría en una sola consulta y se ordena por nombre (categoría y producto)
+    query = db.query(Product)\
         .join(Category)\
         .options(joinedload(Product.category_rel))\
-        .filter(Product.is_active == True)\
-        .order_by(Category.name.asc(), Product.name.asc())\
-        .offset(skip).limit(limit).all()
-        
-def get_products(db: Session, skip: int = 0, limit: int = 100, category: str = None):
-    query = db.query(Product)
+        .filter(Product.is_active == True)
     if category:
-        query = query.filter(Product.category == category)
-    return query.filter(Product.is_active == True).offset(skip).limit(limit).all()
+        query = query.filter(Category.name == category)
+    return query.order_by(Category.name.asc(), Product.name.asc())\
+        .offset(skip).limit(limit).all()
 
 
 def get_low_stock_products(db: Session):

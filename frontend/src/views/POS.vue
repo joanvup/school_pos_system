@@ -214,12 +214,15 @@ const errorMessage = ref('');
 const loadPOSData = async () => {
     loading.value = true;
     try {
-        const [resP, resS] = await Promise.all([
+        // Usamos Promise.allSettled para que si una petición falla (p. ej. ventas recientes)
+        // no se pierda la carga de los productos del cajero.
+        const [resP, resS] = await Promise.allSettled([
             api.get('/products/'),
             api.get('/sales/recent')
         ]);
-        products.value = resP.data;
-        recentSales.value = resS.data;
+        if (resP.status === 'fulfilled') products.value = resP.value.data;
+        if (resS.status === 'fulfilled') recentSales.value = resS.value.data;
+        if (resS.status === 'rejected') console.error("Falló /sales/recent:", resS.reason);
     } catch (e) { console.error(e); } 
     finally { loading.value = false; }
 };
