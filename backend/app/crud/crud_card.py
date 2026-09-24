@@ -70,3 +70,27 @@ def replace_card_uid(db: Session, current_card: Card, new_uid: str, actor_id: in
     db.commit()
     db.refresh(current_card)
     return current_card, None
+
+def unlink_card(db: Session, card: Card, actor_id: int):
+    """
+    Desvincula una tarjeta NFC de su dueño (estudiante o empleado).
+    La tarjeta queda bloqueada pero conserva su saldo e historial.
+    """
+    owner = None
+    if card.student:
+        owner = f"Estudiante: {card.student.full_name}"
+    elif card.employee:
+        owner = f"Empleado: {card.employee.full_name}"
+
+    card.student_id = None
+    card.user_id = None
+    card.status = CardStatus.BLOCKED
+
+    # Registrar en Auditoría
+    details = f"Desvinculación de tarjeta NFC UID {card.uid}. Dueño anterior: {owner or 'Desconocido'}. Saldo conservado: {card.balance}"
+    audit = AuditLog(user_id=actor_id, action="UNLINK_CARD", details=details)
+
+    db.add(audit)
+    db.commit()
+    db.refresh(card)
+    return card

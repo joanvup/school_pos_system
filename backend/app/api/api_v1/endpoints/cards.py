@@ -41,6 +41,35 @@ class TransactionHistory(BaseModel):
 
 router = APIRouter()
 
+class CardUnlink(BaseModel):
+    card_uid: str
+
+@router.post("/unlink")
+def unlink_card(
+    payload: CardUnlink,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(deps.get_current_admin_or_supervisor)
+):
+    """
+    Desvincula la tarjeta NFC de su dueño (estudiante o empleado).
+    La tarjeta queda bloqueada pero conserva su saldo e historial.
+    """
+    card = crud_card.get_card_by_uid(db, uid=payload.card_uid)
+    if not card:
+        raise HTTPException(status_code=404, detail="Tarjeta no encontrada.")
+
+    if not card.student_id and not card.user_id:
+        raise HTTPException(status_code=400, detail="Esta tarjeta no está vinculada a ninguna persona.")
+
+    updated_card = crud_card.unlink_card(db, card=card, actor_id=current_user.id)
+
+    return {
+        "message": "Tarjeta desvinculada correctamente",
+        "uid": updated_card.uid,
+        "balance": updated_card.balance,
+        "status": updated_card.status
+    }
+
 @router.post("/", response_model=CardResponse)
 def assign_card(
     card: CardCreate,

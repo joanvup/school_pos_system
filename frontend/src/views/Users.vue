@@ -66,6 +66,9 @@
                         <button @click="openCardModal(user)" class="p-1 bg-gray-100 rounded-lg hover:bg-orange-100 text-orange-500 transition-colors" title="Reemplazar Tarjeta">
                             🔄
                         </button>
+                        <button @click="unlinkUserCard(user)" class="p-1 bg-gray-100 rounded-lg hover:bg-red-100 text-red-500 transition-colors" title="Desvincular Tarjeta">
+                            🚫
+                        </button>
                     </div>
                     <button v-else @click="openCardModal(user)" class="text-[10px] font-black text-primary border-2 border-primary/20 px-3 py-1 rounded-xl hover:bg-primary hover:text-white transition-all uppercase tracking-widest">
                         💳 Vincular
@@ -116,39 +119,65 @@
       </div>
     </div>
 
-    <!-- MODAL 2: VINCULACIÓN / REEMPLAZO DE TARJETA -->
+    <!-- MODAL 2: VINCULACIÓN / REEMPLAZO DE TARJETA CON CONFIRMACIÓN -->
     <div v-if="showCardModal" class="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[60] p-4">
       <div class="bg-white rounded-[50px] shadow-2xl p-10 max-w-sm w-full text-center border-8 border-gray-50 animate-scale-in">
         <div class="text-6xl mb-6">{{ isReplacement ? '🔄' : '💳' }}</div>
         <h3 class="text-2xl font-black uppercase tracking-tighter mb-2">
             {{ isReplacement ? 'Reemplazar Tarjeta' : 'Vincular Tarjeta' }}
         </h3>
-        <p class="text-gray-500 text-sm font-medium mb-8">
-            {{ isReplacement ? 'La tarjeta NFC anterior será anulada y el saldo pasará a la nueva.' : 'Acerque la tarjeta NFC al lector ACR122U ahora.' }}
-        </p>
         
         <div class="mb-6">
             <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Usuario Destino</p>
             <p class="font-black text-gray-800">{{ selectedUser?.full_name }}</p>
         </div>
 
-        <input 
-          ref="cardInput" v-model="cardUid" @keyup.enter="handleCardAction"
-          type="password" 
-          class="w-full border-4 border-blue-100 bg-gray-50 rounded-3xl p-5 text-center text-3xl font-black text-primary outline-none focus:border-primary transition-all mb-4"
-          placeholder="••••••"
-        >
-        
-        <div v-if="cardError" class="text-red-500 text-xs font-black uppercase bg-red-50 p-3 rounded-xl mb-4 border border-red-100 animate-shake">
-            ⚠️ {{ cardError }}
-        </div>
+        <!-- PASO 1: ESCANEO DE LA TARJETA -->
+        <template v-if="!confirmStep">
+            <p class="text-gray-500 text-sm font-medium mb-6">
+                {{ isReplacement ? 'Acerque la NUEVA tarjeta NFC al lector ACR122U. La anterior será anulada y el saldo pasará a la nueva.' : 'Acerque la tarjeta NFC al lector ACR122U para leer su UID.' }}
+            </p>
 
-        <div class="space-y-3">
-            <button @click="handleCardAction" class="w-full bg-primary text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all">
-                {{ isReplacement ? 'Confirmar Reemplazo' : 'Vincular Tarjeta' }}
-            </button>
-            <button @click="showCardModal = false" class="w-full py-2 text-gray-400 font-bold uppercase text-[10px] tracking-widest">Cerrar</button>
-        </div>
+            <input 
+              ref="cardInput" v-model="cardUid" @keyup.enter="handleCardAction"
+              type="password" 
+              class="w-full border-4 border-blue-100 bg-gray-50 rounded-3xl p-5 text-center text-3xl font-black text-primary outline-none focus:border-primary transition-all mb-4"
+              placeholder="••••••"
+            >
+            
+            <div v-if="cardError" class="text-red-500 text-xs font-black uppercase bg-red-50 p-3 rounded-xl mb-4 border border-red-100 animate-shake">
+                ⚠️ {{ cardError }}
+            </div>
+
+            <div class="space-y-3">
+                <button @click="handleCardAction" class="w-full bg-primary text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all">
+                    Leer Tarjeta ➜
+                </button>
+                <button @click="showCardModal = false" class="w-full py-2 text-gray-400 font-bold uppercase text-[10px] tracking-widest">Cerrar</button>
+            </div>
+        </template>
+
+        <!-- PASO 2: CONFIRMACIÓN DEL UID LEÍDO -->
+        <template v-else>
+            <p class="text-gray-500 text-sm font-medium mb-4">
+                Se leyó la siguiente tarjeta NFC. Verifique que sea la correcta antes de continuar.
+            </p>
+
+            <div class="bg-gray-900 text-white p-6 rounded-3xl shadow-lg border-2 border-gray-800 mb-6">
+                <p class="text-[9px] font-black uppercase opacity-50 tracking-widest mb-1">UID Detectado</p>
+                <p class="text-xl font-black font-mono tracking-tight break-all">{{ pendingUid }}</p>
+            </div>
+
+            <div class="space-y-3">
+                <button @click="confirmCardLinking" :disabled="cardProcessing" class="w-full bg-green-500 hover:bg-green-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all">
+                    ✓ SÍ, {{ isReplacement ? 'REEMPLAZAR' : 'VINCULAR' }}
+                </button>
+                <button @click="resetCardScan" class="w-full bg-gray-100 text-gray-600 py-3 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-gray-200 transition-colors">
+                    ⟳ Leer Otra Tarjeta
+                </button>
+                <button @click="showCardModal = false" class="w-full py-2 text-gray-400 font-bold uppercase text-[10px] tracking-widest">Cancelar</button>
+            </div>
+        </template>
       </div>
     </div>
 
@@ -173,6 +202,8 @@ const selectedUser = ref(null);
 const cardUid = ref('');
 const cardInput = ref(null);
 const cardError = ref('');
+const confirmStep = ref(false);
+const pendingUid = ref('');
 
 // Paginación y Búsqueda
 const page = ref(1);
@@ -232,6 +263,8 @@ const openCardModal = (user) => {
     selectedUser.value = user;
     cardUid.value = '';
     cardError.value = '';
+    confirmStep.value = false;
+    pendingUid.value = '';
     // Detectamos si es reemplazo
     isReplacement.value = !!user.card;
     showCardModal.value = true;
@@ -243,25 +276,33 @@ const openCardModal = (user) => {
 
 const cardProcessing = ref(false);
 
-const handleCardAction = async () => {
+// PASO 1: Solo captura el UID leído y pide confirmación antes de enlazar
+const handleCardAction = () => {
     if(!cardUid.value || cardProcessing.value) return;
+    cardError.value = '';
+    pendingUid.value = cardUid.value.trim().replace(/[:\s-]/g, '').toUpperCase();
+    cardUid.value = '';
+    confirmStep.value = true;
+};
+
+// PASO 2: El usuario confirmó el UID detectado; se realiza la operación real
+const confirmCardLinking = async () => {
+    if(!pendingUid.value || cardProcessing.value) return;
     cardProcessing.value = true;
     cardError.value = '';
-    const cleanUid = cardUid.value.trim().replace(/[:\s-]/g, '').toUpperCase();
-    cardUid.value = '';
 
     try {
         if (isReplacement.value) {
             // Caso 1: Reemplazo (POST /cards/replace)
             await api.post('/cards/replace', {
                 old_uid: selectedUser.value.card.uid,
-                new_uid: cleanUid
+                new_uid: pendingUid.value
             });
             alert("✅ Tarjeta NFC reemplazada. El saldo se mantuvo en la nueva cuenta.");
         } else {
             // Caso 2: Vinculación Nueva (POST /cards/)
             await api.post('/cards/', {
-                uid: cleanUid,
+                uid: pendingUid.value,
                 user_id: selectedUser.value.id,
                 daily_limit: 100000
             });
@@ -271,10 +312,33 @@ const handleCardAction = async () => {
         loadUsers();
     } catch (error) {
         cardError.value = error.response?.data?.detail || "Error en la operación";
-        cardUid.value = '';
-        cardInput.value?.focus();
+        resetCardScan();
     } finally {
         cardProcessing.value = false;
+    }
+};
+
+// Volver al paso de escaneo (p. ej. si se leyó una tarjeta equivocada)
+const resetCardScan = () => {
+    confirmStep.value = false;
+    pendingUid.value = '';
+    cardUid.value = '';
+    cardError.value = '';
+    setTimeout(() => {
+        if(cardInput.value) cardInput.value.focus();
+    }, 200);
+};
+
+// Desvincular la tarjeta del usuario (empleado)
+const unlinkUserCard = async (user) => {
+    if(!user.card) return;
+    if(!confirm(`¿Estás seguro de que deseas DESVINCULAR la tarjeta ${user.card.uid} de ${user.full_name}?\n\nEl saldo y el historial se conservan y la tarjeta quedará inactiva.`)) return;
+    try {
+        await api.post('/cards/unlink', { card_uid: user.card.uid });
+        alert("✅ Tarjeta desvinculada.");
+        user.card = null;
+    } catch (e) {
+        alert(e.response?.data?.detail || "Error al desvincular la tarjeta");
     }
 };
 
