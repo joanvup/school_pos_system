@@ -92,7 +92,7 @@ if [ -z "$BACKEND_DIR" ] && [ -n "$SERVICE_NAME" ] && has systemctl; then
     fi
 fi
 
-BACKEND_DIR="${BACKEND_DIR:-/opt/school_pos/backend}"
+BACKEND_DIR="${BACKEND_DIR:-/var/www/school_pos/backend}"
 
 if [ ! -d "$BACKEND_DIR" ]; then
     err "No existe el directorio del backend: $BACKEND_DIR"
@@ -106,12 +106,15 @@ cd "$BACKEND_DIR"
 
 # ------------------------------------------------------------------
 info "1/6 Actualizando el código (git pull)..."
-if [ -d ".git" ]; then
-    git pull --ff-only && ok "Código actualizado." || warn "git pull falló; continúo con los demás pasos."
+REPO_ROOT="$BACKEND_DIR"
+if [ ! -d "$REPO_ROOT/.git" ] && [ -d "$(dirname "$BACKEND_DIR")/.git" ]; then
+    REPO_ROOT="$(dirname "$BACKEND_DIR")"
+fi
+if [ -d "$REPO_ROOT/.git" ]; then
+    git -C "$REPO_ROOT" pull --ff-only && ok "Código actualizado." || warn "git pull falló; continúo con los demás pasos."
 else
-    warn "No es un repositorio git en esta ruta. ¿El git repo está en otro lado?"
-    warn "  Verifica con: git -C <otra-ruta> status"
-    warn "  y copia/actualiza los archivos en $BACKEND_DIR"
+    warn "No hay repo git en $REPO_ROOT. Verifica: git -C <otra-ruta> status"
+    warn "  y actualiza los archivos en $BACKEND_DIR"
 fi
 
 # ------------------------------------------------------------------
@@ -149,16 +152,14 @@ restart_service() {
         none)    warn "Reinicia manualmente tu servicio." ;;
         auto)
             if [ -n "$SERVICE_NAME" ]; then
-                if has systemctl && systemctl list-units --type=service --all 2>/dev/null | grep -q "$SERVICE_NAME"; then
-                    if is_app_service "$SERVICE_NAME" || [ "$AUTO_DETECTED" = "0" ]; then
-                        sudo systemctl restart "$SERVICE_NAME"
-                    else
-                        warn "$SERVICE_NAME no parece ser la app; NO lo reinicio. Configura SERVICE_NAME correcto."
-                    fi
+                if [ "$AUTO_DETECTED" = "1" ] && ! is_app_service "$SERVICE_NAME"; then
+                    warn "$SERVICE_NAME no parece ser la app; NO lo reinicio. Configura SERVICE_NAME correcto."
+                elif has systemctl; then
+                    sudo systemctl restart "$SERVICE_NAME"
                 elif has docker; then
                     docker restart "$SERVICE_NAME"
                 else
-                    warn "No pude reiniciar; hazlo tú: sudo systemctl restart $SERVICE_NAME"
+                    warn "Reinicia tú: sudo systemctl restart $SERVICE_NAME"
                 fi
             else
                 warn "Sin SERVICE_NAME; reinicia manualmente tu servicio."
