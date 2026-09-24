@@ -6,6 +6,8 @@ from app.db.base import Base
 from app.api.api_v1.api import api_router
 from app.core.config import settings
 from fastapi.staticfiles import StaticFiles # Importar
+from app.db.session import SessionLocal
+from app.crud import crud_payment_gateway
 import os
 
 # Migraciones de columnas idempotentes.
@@ -14,6 +16,10 @@ import os
 MIGRATIONS = [
     ("students", "ADD COLUMN pending_balance FLOAT NOT NULL DEFAULT 0"),
     ("users", "ADD COLUMN pending_balance FLOAT NOT NULL DEFAULT 0"),
+    ("transactions", "ADD COLUMN gateway VARCHAR(30) DEFAULT 'payu'"),
+    ("transactions", "ADD COLUMN currency VARCHAR(10) DEFAULT 'COP'"),
+    ("transactions", "ADD COLUMN raw_notification TEXT"),
+    ("transactions", "ADD COLUMN response_code VARCHAR(100)"),
 ]
 
 def _column_exists(table: str, column: str) -> bool:
@@ -48,6 +54,16 @@ Base.metadata.create_all(bind=engine)
 
 # Aplicar migraciones pendientes
 run_safe_migrations()
+
+# Sembrar la tabla de pasarelas de pago (PayU activa por defecto)
+def seed_gateways():
+    try:
+        with SessionLocal() as db:
+            crud_payment_gateway.seed_gateway_settings(db)
+    except Exception as e:
+        print(f"[SEED] No se pudo sembrar pasarelas: {e}")
+
+seed_gateways()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

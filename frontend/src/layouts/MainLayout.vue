@@ -105,6 +105,10 @@
                 <router-link v-if="role === 'admin'" to="/balance-audit" class="menu-item" active-class="active">
                   <span class="mr-3">⚖️</span> Confrontar Saldos
                 </router-link>
+
+                <router-link v-if="role === 'admin'" to="/admin/payments" class="menu-item" active-class="active">
+                  <span class="mr-3">💳</span> Pasarela de pago
+                </router-link>
             </div>
         </nav>
 

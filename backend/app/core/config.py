@@ -17,7 +17,19 @@ class Settings(BaseSettings):
     PAYU_ACCOUNT_ID: str
     PAYU_IS_TEST: bool = True
     PAYU_URL: str
-    
+
+    # Wompi (para activar cuando se configuren credenciales)
+    WOMPI_PUBLIC_KEY: str = ""
+    WOMPI_PRIVATE_KEY: str = ""
+    WOMPI_WEBHOOK_SECRET: str = ""
+    WOMPI_IS_TEST: bool = True
+    WOMPI_URL: str = "https://sandbox.wompi.co/v1"
+
+    # Mercado Pago
+    MP_ACCESS_TOKEN: str = ""
+    MP_WEBHOOK_SECRET: str = ""
+    MP_URL: str = "https://api.mercadopago.com"
+
     class Config:
         env_file = ".env"
 

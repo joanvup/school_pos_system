@@ -64,7 +64,7 @@
                 @click="openRecharge"
                 class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold shadow transition flex items-center justify-center gap-2"
             >
-                <span>💳</span> Recargar con PSE
+                <span>💳</span> Recargar Saldo
             </button>
             <button 
                 @click="openHistory"
@@ -173,13 +173,13 @@
             <button @click="showLimitModal = false" class="mt-4 text-gray-500 underline text-sm">Cancelar</button>
         </div>
     </div>
-    <!-- MODAL PSE PAYMENT -->
-    <PsePaymentModal 
+    <!-- MODAL PAYMENT (PASARELA ACTIVA) -->
+    <PaymentModal
         v-if="myCard"
-        :is-open="isPseOpen" 
-        :title="authStore.user?.full_name" 
+        :is-open="isPseOpen"
+        :title="authStore.user?.full_name"
         :card-uid="myCard.uid"
-        :current-balance="myCard.balance" 
+        :current-balance="myCard.balance"
         @close="isPseOpen = false"
     />
 
@@ -193,7 +193,7 @@ import { useAuthStore } from '../stores/auth';
 import { formatMoney } from '../utils/formatters';
 
 // 1. IMPORTAR
-import PsePaymentModal from '../components/PsePaymentModal.vue';
+import PaymentModal from '../components/PaymentModal.vue';
 
 const isPseOpen = ref(false); // ¿Está abierto el modal?
 

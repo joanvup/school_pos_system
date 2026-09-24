@@ -20,6 +20,7 @@ import Settings from '../views/Settings.vue';
 import ResetPassword from '../views/ResetPassword.vue';
 import PaymentResult from '../views/PaymentResult.vue';
 import BalanceAudit from '../views/BalanceAudit.vue';
+import PaymentGateways from '../views/PaymentGateways.vue';
 
 
 const routes = [
@@ -52,6 +53,7 @@ const routes = [
             { path: 'settings', component: Settings },
             { path: 'payment-result', component: PaymentResult },
             { path: 'balance-audit', component: BalanceAudit },
+            { path: 'admin/payments', component: PaymentGateways },
         ]
     }
 ];

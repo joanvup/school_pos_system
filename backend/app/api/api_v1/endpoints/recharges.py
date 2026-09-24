@@ -7,6 +7,7 @@ from app.api import deps
 from app.models.user import User, UserRole
 from app.utils.payu_service import PayUService
 from app.models.card import Card, Transaction, TransactionType
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -91,8 +92,10 @@ def init_recharge(
 
 @router.post("/payu-confirmation")
 async def payu_confirmation(request: Request, db: Session = Depends(get_db)):
-    # 1. Capturar todo lo que llega
+    # 1. Capturar todo lo que llega (crudo y parseado)
     try:
+        raw = await request.body()
+        raw_text = (raw or b"").decode("utf-8", errors="replace")
         raw_body = await request.form()
         form_data = dict(raw_body)
         print(f"--- WEBHOOK INCOMING ---")
@@ -109,13 +112,19 @@ async def payu_confirmation(request: Request, db: Session = Depends(get_db)):
     state = form_data.get("state_pol") # 4=Aprobado, 6=Rechazado
     incoming_sign = form_data.get("sign")
     cus = form_data.get("cus")
+    response_code = form_data.get("response_code_pol")
 
-    # 3. Validar Firma
+    # 3. HARDENING: validar que la notificación viene de NUESTRA cuenta PayU
+    if str(merchant_id) != str(settings.PAYU_MERCHANT_ID):
+        print(f"WEBHOOK REJECT: merchant_id {merchant_id} != {settings.PAYU_MERCHANT_ID}")
+        return {"message": "Invalid Merchant"}
+
+    # 4. Validar Firma
     if not PayUService.verify_confirmation_signature(merchant_id, reference, value, currency, state, incoming_sign):
         print(f"WEBHOOK ERROR: Firma inválida para ref {reference}")
         return {"message": "Invalid Signature"}
 
-    # 4. Procesar en Base de Datos
+    # 5. Procesar en Base de Datos
     tx = db.query(Transaction).options(joinedload(Transaction.card))\
            .filter(Transaction.reference_code == reference).first()
            
@@ -123,7 +132,15 @@ async def payu_confirmation(request: Request, db: Session = Depends(get_db)):
         print(f"WEBHOOK ERROR: Referencia {reference} no existe en DB local")
         return {"message": "TX Not Found"}
 
+    # HARDENING: siempre archivar la notificación cruda (auditoría)
+    tx.raw_notification = raw_text
+    tx.gateway = "payu"
+    tx.currency = currency or "COP"
+    tx.response_code = response_code
+    db.add(tx)
+
     if tx.status == "approved":
+        db.commit()
         return {"message": "Already Approved"}
 
     if state == "4": # APROBADO
@@ -138,6 +155,7 @@ async def payu_confirmation(request: Request, db: Session = Depends(get_db)):
             db.commit()
             print(f"✅ SALDO ACTUALIZADO: Tarjeta {tx.card.uid} +${value}")
         else:
+            db.commit()
             print("ERROR: Transacción no tiene tarjeta asociada")
     else:
         tx.status = "declined"

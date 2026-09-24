@@ -41,6 +41,10 @@ class Transaction(Base):
     reference_code = Column(String(100), nullable=True) # Código PSE
     status = Column(String(20), default="completed") 
     cus = Column(String(100), nullable=True, index=True) 
+    gateway = Column(String(30), default="payu", index=True)
+    currency = Column(String(10), default="COP")
+    raw_notification = Column(Text, nullable=True)
+    response_code = Column(String(100), nullable=True)
     card = relationship("Card", back_populates="transactions")
     details = relationship("TransactionDetail", back_populates="transaction")
 
