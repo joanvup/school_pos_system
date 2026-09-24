@@ -26,6 +26,8 @@ LOGIN_EMAIL="${LOGIN_EMAIL:-}"                        # Correo para probar login
 LOGIN_PASS="${LOGIN_PASS:-}"                          # Contraseña para probar login (opcional)
 # ========================================================================
 
+AUTO_DETECTED=0
+
 GREEN="\033[1;32m"; CYAN="\033[1;36m"; YELLOW="\033[1;33m"; RED="\033[1;31m"; NC="\033[0m"
 info() { echo -e "${CYAN}[INFO ]${NC} $*"; }
 ok()   { echo -e "${GREEN}[ OK  ]${NC} $*"; }
@@ -34,27 +36,59 @@ err()  { echo -e "${RED}[FAIL ]${NC} $*"; }
 
 has() { command -v "$1" >/dev/null 2>&1; }
 
+candidate_units() {
+    systemctl list-unit-files --type=service --no-legend 2>/dev/null \
+        | awk '{print $1}' | sed 's/\.service$//' \
+        | grep -iE '\b(school|pos|almuerzo|backend|api|fastapi|uvicorn|gunicorn|lector)\b' \
+        | grep -viE '\b(postgres|mysql|mariadb|redis|postfix|nginx|apache2?)\b' \
+        || true
+}
+
+is_app_service() {
+    [ -n "$1" ] || return 1
+    local ex wd
+    ex=$(systemctl show -p ExecStart --value "$1" 2>/dev/null || true)
+    if echo "$ex" | grep -qiE 'uvicorn|gunicorn|python'; then
+        return 0
+    fi
+    wd=$(systemctl show -p WorkingDirectory --value "$1" 2>/dev/null || true)
+    if [ -z "$wd" ] && has systemctl; then
+        wd=$(systemctl cat --no-pager "$1" 2>/dev/null \
+            | sed -n 's/^[[:space:]]*WorkingDirectory=[[:space:]]*//p' | head -n1)
+    fi
+    [ -n "$wd" ] && { [ -f "$wd/backend/main.py" ] || [ -f "$wd/.env" ]; }
+}
+
 # ------------------------------------------------------------------
 # 0/6 Autodetección de servicio (systemd) y ruta del backend
 # ------------------------------------------------------------------
 if [ -z "$SERVICE_NAME" ] && has systemctl; then
-    SERVICE_NAME=$(systemctl list-unit-files --type=service --no-legend 2>/dev/null \
-        | awk '{print $1}' \
-        | grep -iE "school|pos|almuerzo|backend|api|fastapi|uvicorn|gunicorn" \
-        | head -n1 | sed 's/\.service$//')
-    [ -n "$SERVICE_NAME" ] && info "Servicio detectado: $SERVICE_NAME"
+    CAND=$(candidate_units | tr '\n' ' ')
+    [ -n "$CAND" ] && info "Candidatos systemd: $CAND"
+    for s in $(candidate_units); do
+        if is_app_service "$s"; then
+            SERVICE_NAME="$s"
+            break
+        fi
+    done
+    if [ -z "$SERVICE_NAME" ]; then
+        SERVICE_NAME=$(candidate_units | head -n1)
+        [ -n "$SERVICE_NAME" ] && warn "Uso '$SERVICE_NAME' sin verificar; revisa los candidatos de arriba."
+    fi
+    [ -n "$SERVICE_NAME" ] && info "Servicio: $SERVICE_NAME"
+    AUTO_DETECTED=1
 fi
 
 if [ -z "$BACKEND_DIR" ] && [ -n "$SERVICE_NAME" ] && has systemctl; then
     wd=$(systemctl show -p WorkingDirectory --value "$SERVICE_NAME" 2>/dev/null || true)
     if [ -z "$wd" ]; then
         wd=$(systemctl cat --no-pager "$SERVICE_NAME" 2>/dev/null \
-            | sed -n 's/^[[:space:]]*WorkingDirectory?=[[:space:]]*//p' | head -n1)
+            | sed -n 's/^[[:space:]]*WorkingDirectory=[[:space:]]*//p' | head -n1)
     fi
     if [ -n "$wd" ] && [ -d "$wd" ]; then
         BACKEND_DIR="$wd"
         [ -f "$BACKEND_DIR/backend/main.py" ] && BACKEND_DIR="$BACKEND_DIR/backend"
-        info "Ruta detectada desde el servicio: $BACKEND_DIR"
+        info "Ruta del backend: $BACKEND_DIR"
     fi
 fi
 
@@ -116,7 +150,11 @@ restart_service() {
         auto)
             if [ -n "$SERVICE_NAME" ]; then
                 if has systemctl && systemctl list-units --type=service --all 2>/dev/null | grep -q "$SERVICE_NAME"; then
-                    sudo systemctl restart "$SERVICE_NAME"
+                    if is_app_service "$SERVICE_NAME" || [ "$AUTO_DETECTED" = "0" ]; then
+                        sudo systemctl restart "$SERVICE_NAME"
+                    else
+                        warn "$SERVICE_NAME no parece ser la app; NO lo reinicio. Configura SERVICE_NAME correcto."
+                    fi
                 elif has docker; then
                     docker restart "$SERVICE_NAME"
                 else
