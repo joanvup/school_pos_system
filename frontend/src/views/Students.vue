@@ -352,7 +352,7 @@ const resetCardScan = () => {
 // Desvincular la tarjeta del estudiante
 const unlinkStudentCard = async (student) => {
     if(!student.card) return;
-    if(!confirm(`¿Estás seguro de que deseas DESVINCULAR la tarjeta ${student.card.uid} de ${student.full_name}?\n\nEl saldo y el historial se conservan y la tarjeta quedará inactiva.`)) return;
+    if(!confirm(`¿Estás seguro de que deseas DESVINCULAR la tarjeta ${student.card.uid} de ${student.full_name}?\n\nEl saldo de ${student.full_name} se conservará y se recuperará al vincular una nueva tarjeta. La tarjeta actual quedará bloqueada.`)) return;
     try {
         await api.post('/cards/unlink', { card_uid: student.card.uid });
         alert("✅ Tarjeta desvinculada del estudiante.");

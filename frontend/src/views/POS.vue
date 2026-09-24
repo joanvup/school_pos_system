@@ -158,6 +158,9 @@
                 <button @click="closeModal" class="w-full py-4 bg-red-50 text-red-600 rounded-2xl font-black text-xs uppercase tracking-widest">Cancelar</button>
             </div>
             <div v-else class="space-y-4">
+                <div v-if="errorMessage" class="text-red-500 text-xs font-black uppercase bg-red-50 p-3 rounded-xl mb-1 border border-red-100 animate-shake">
+                    ⚠️ {{ errorMessage }}
+                </div>
                 <div class="bg-primary text-white p-6 rounded-[30px]">
                     <p class="text-[8px] font-black uppercase tracking-widest opacity-60">Comprador</p>
                     <h4 class="text-xl font-black">{{ cardHolder.name }}</h4>
@@ -293,6 +296,13 @@ const identifyCard = async () => {
             type: data.owner_type,
             balance: data.balance
         };
+        // Tarjeta sin vinculación (sin estudiante ni empleado): no se permite vender
+        if (!data.owner_name || data.owner_name === 'Desconocido' || data.owner_type === 'N/A') {
+            alert("⚠️ Esta tarjeta NO está vinculada a ningún Estudiante ni Empleado.\nNo se permiten compras con tarjetas desvinculadas.");
+            rfidCode.value = '';
+            setTimeout(() => rfidInput.value?.focus(), 100);
+            return;
+        }
         stepIdentified.value = true;
     } catch (e) {
         alert("Tarjeta NFC no reconocida");
@@ -345,4 +355,6 @@ onMounted(loadPOSData);
   -webkit-box-orient: vertical;  
   overflow: hidden;
 }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+.animate-shake { animation: shake 0.2s ease-in-out 0s 2; }
 </style>

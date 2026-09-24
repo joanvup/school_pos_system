@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Enum, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, Float, ForeignKey, Enum, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -22,6 +22,9 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Saldo pendiente cuando la tarjeta está desvinculada: se traslada a la nueva tarjeta al vincular otra
+    pending_balance = Column(Float, default=0.0)
+
     # Relaciones
     students = relationship("Student", back_populates="parent")
     card = relationship("Card", back_populates="employee", uselist=False) # Solo empleados tienen tarjeta directa
@@ -34,6 +37,9 @@ class Student(Base):
     full_name = Column(String(150), nullable=False)
     grade = Column(String(50)) # Grado o Curso
     parent_id = Column(Integer, ForeignKey("users.id"))
+
+    # Saldo pendiente cuando la tarjeta está desvinculada: se traslada a la nueva tarjeta al vincular otra
+    pending_balance = Column(Float, default=0.0)
     
     # Relaciones
     parent = relationship("User", back_populates="students")

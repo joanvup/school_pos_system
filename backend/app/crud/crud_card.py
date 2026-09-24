@@ -74,26 +74,54 @@ def replace_card_uid(db: Session, current_card: Card, new_uid: str, actor_id: in
 def unlink_card(db: Session, card: Card, actor_id: int):
     """
     Desvincula una tarjeta NFC de su dueño (estudiante o empleado).
-    La tarjeta queda bloqueada pero conserva su saldo e historial.
+    El saldo de la persona prevalece: se transfiere a su 'saldo pendiente'
+    y se recuperará al vincular una nueva tarjeta.
+    La tarjeta queda bloqueada y sin saldo.
     """
     owner = None
+    person = None
     if card.student:
         owner = f"Estudiante: {card.student.full_name}"
+        person = card.student
     elif card.employee:
         owner = f"Empleado: {card.employee.full_name}"
+        person = card.employee
+
+    # El saldo sigue a la persona, no al plástico
+    if person is not None:
+        person.pending_balance = (person.pending_balance or 0.0) + (card.balance or 0.0)
+        card.balance = 0.0
+        db.add(person)
 
     card.student_id = None
     card.user_id = None
     card.status = CardStatus.BLOCKED
 
     # Registrar en Auditoría
-    details = f"Desvinculación de tarjeta NFC UID {card.uid}. Dueño anterior: {owner or 'Desconocido'}. Saldo conservado: {card.balance}"
+    details = f"Desvinculación de tarjeta NFC UID {card.uid}. Dueño anterior: {owner or 'Desconocido'}. Saldo transferido a su saldo pendiente: {person.pending_balance if person else 0}"
     audit = AuditLog(user_id=actor_id, action="UNLINK_CARD", details=details)
 
     db.add(audit)
     db.commit()
     db.refresh(card)
     return card
+
+def apply_pending_balance(db: Session, db_card: Card, person):
+    """
+    Si la persona tiene un saldo pendiente (de una tarjeta previamente
+    desvinculada), se lo carga a la tarjeta recién vinculada.
+    """
+    if person is None:
+        return db_card
+    pending = getattr(person, "pending_balance", None) or 0.0
+    if pending:
+        db_card.balance = (db_card.balance or 0.0) + pending
+        person.pending_balance = 0.0
+        db.add(person)
+    db.add(db_card)
+    db.commit()
+    db.refresh(db_card)
+    return db_card
 
 def relink_card(db: Session, db_card: Card, student_id, user_id, daily_limit, actor_id):
     """

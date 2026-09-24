@@ -14,6 +14,13 @@ def process_sale(db: Session, sale_in: dict):
     if not card:
         raise HTTPException(status_code=404, detail="Tarjeta NFC no encontrada")
     
+    # NO se permiten compras con tarjetas sin dueño (desvinculadas)
+    if not card.student_id and not card.user_id:
+        raise HTTPException(
+            status_code=400,
+            detail="La tarjeta no está vinculada a un estudiante ni a un empleado. No se permiten compras."
+        )
+    
     if card.status != CardStatus.ACTIVE:
         raise HTTPException(status_code=400, detail="La tarjeta está bloqueada o inactiva")
 

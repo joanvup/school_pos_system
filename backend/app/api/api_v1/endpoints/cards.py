@@ -102,7 +102,7 @@ def assign_card(
     if existing_card:
         # Si existe pero NO está vinculada a nadie, se re-vincula y se activa
         if existing_card.student_id is None and existing_card.user_id is None:
-            return crud_card.relink_card(
+            db_card = crud_card.relink_card(
                 db,
                 db_card=existing_card,
                 student_id=card.student_id,
@@ -110,9 +110,13 @@ def assign_card(
                 daily_limit=card.daily_limit,
                 actor_id=current_user.id
             )
+            person = student if card.student_id else (user if card.user_id else None)
+            return crud_card.apply_pending_balance(db, db_card, person)
         raise HTTPException(status_code=400, detail="Esta tarjeta ya está registrada en el sistema.")
 
-    return crud_card.create_card(db=db, card=card)
+    db_card = crud_card.create_card(db=db, card=card)
+    person = student if card.student_id else (user if card.user_id else None)
+    return crud_card.apply_pending_balance(db, db_card, person)
 
 @router.get("/check/{uid}") # Quitamos response_model temporalmente para enviar un dict personalizado
 def check_card_status(

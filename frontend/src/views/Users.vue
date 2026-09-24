@@ -337,7 +337,7 @@ const resetCardScan = () => {
 // Desvincular la tarjeta del usuario (empleado)
 const unlinkUserCard = async (user) => {
     if(!user.card) return;
-    if(!confirm(`¿Estás seguro de que deseas DESVINCULAR la tarjeta ${user.card.uid} de ${user.full_name}?\n\nEl saldo y el historial se conservan y la tarjeta quedará inactiva.`)) return;
+    if(!confirm(`¿Estás seguro de que deseas DESVINCULAR la tarjeta ${user.card.uid} de ${user.full_name}?\n\nEl saldo de ${user.full_name} se conservará y se recuperará al vincular una nueva tarjeta. La tarjeta actual quedará bloqueada.`)) return;
     try {
         await api.post('/cards/unlink', { card_uid: user.card.uid });
         alert("✅ Tarjeta desvinculada.");
