@@ -18,8 +18,8 @@
 set -euo pipefail
 
 # ============================ CONFIGURACIÓN ============================
-BACKEND_DIR="${BACKEND_DIR:-}"                        # Ruta del backend (vacío = autodetecta)
-SERVICE_NAME="${SERVICE_NAME:-}"                      # Nombre del unit systemd (vacío = autodetecta)
+BACKEND_DIR="${BACKEND_DIR:-/var/www/school_pos/backend}"  # Ruta del backend (vacío = autodetecta)
+SERVICE_NAME="${SERVICE_NAME:-school_pos_backend}"         # Nombre del unit systemd (vacío = autodetecta)
 SERVICE_TYPE="${SERVICE_TYPE:-auto}"                  # systemd | docker | none | auto
 DOMAIN="${DOMAIN:-}"                                  # Ej: https://pos.colegiobilingue.edu.co (opcional)
 LOGIN_EMAIL="${LOGIN_EMAIL:-}"                        # Correo para probar login (opcional)
