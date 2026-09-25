@@ -43,6 +43,24 @@
             </div>
         </div>
 
+        <div class="bg-white p-8 rounded-[32px] shadow-sm border border-blue-100">
+            <div class="flex items-center gap-3 mb-5">
+                <span class="text-2xl">⬇️</span>
+                <div>
+                    <h3 class="text-xs font-black text-primary uppercase tracking-widest">Descargas</h3>
+                    <p class="text-xs text-gray-400 font-medium mt-1">Instala el lector NFC para los puntos de venta.</p>
+                </div>
+            </div>
+            <button
+                @click="downloadReader"
+                :disabled="downloadingReader"
+                class="w-full bg-primary text-white py-4 rounded-2xl font-black text-sm uppercase tracking-wider shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50"
+            >
+                {{ downloadingReader ? 'Preparando descarga...' : '⬇️ Descargar lector NFC' }}
+            </button>
+            <p class="mt-3 text-[10px] text-gray-400 font-medium">Ejecutable para Windows. La descarga requiere un usuario autorizado.</p>
+        </div>
+
         <!-- CONFIGURACIÓN SMTP (EMAIL) -->
         <div class="bg-white p-8 rounded-[32px] shadow-sm border border-orange-100 bg-orange-50/10">
             <div class="flex items-center gap-2 mb-6">
@@ -90,12 +108,13 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import api from '../api/axios';
+import api, { downloadNfcReader } from '../api/axios';
 import { useConfigStore } from '../stores/config';
 const configStore = useConfigStore();
 
 const baseUrl = configStore.baseUrl;
 const loading = ref(false);
+const downloadingReader = ref(false);
 const settings = ref({
     school_name: '',
     school_logo: '',
@@ -127,6 +146,17 @@ const saveSettings = async () => {
         alert("Error al guardar");
     } finally {
         loading.value = false;
+    }
+};
+
+const downloadReader = async () => {
+    downloadingReader.value = true;
+    try {
+        await downloadNfcReader();
+    } catch (e) {
+        alert("No se pudo descargar el lector NFC. Intenta nuevamente.");
+    } finally {
+        downloadingReader.value = false;
     }
 };
 

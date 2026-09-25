@@ -119,6 +119,14 @@
                 <a :href="'mailto:' + configStore.settings.school_support_email" class="text-xs font-bold text-primary truncate block hover:underline">
                     {{ configStore.settings.school_support_email }}
                 </a>
+                <button
+                    v-if="['admin', 'supervisor', 'vendedor'].includes(role)"
+                    @click="downloadReader"
+                    :disabled="downloadingReader"
+                    class="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-black text-primary bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors disabled:opacity-50"
+                >
+                    {{ downloadingReader ? 'Preparando...' : '⬇️ Descargar lector NFC' }}
+                </button>
             </div>
             
             <button @click="authStore.logout()" class="w-full flex items-center justify-center px-4 py-3 text-red-600 bg-red-50 hover:bg-red-100 rounded-2xl font-bold transition-colors">
@@ -137,12 +145,14 @@
 
 <script setup>
 import { ref, computed } from 'vue';
+import { downloadNfcReader } from '../api/axios';
 import { useAuthStore } from '../stores/auth';
 import { useConfigStore } from '../stores/config';
 
 const authStore = useAuthStore();
 const configStore = useConfigStore();
 const isSidebarOpen = ref(false);
+const downloadingReader = ref(false);
 
 const role = computed(() => authStore.user?.role || '');
 
@@ -150,6 +160,18 @@ const role = computed(() => authStore.user?.role || '');
 const handleNavClick = () => {
     if (window.innerWidth < 768) {
         isSidebarOpen.value = false;
+    }
+};
+
+const downloadReader = async () => {
+    if (downloadingReader.value) return;
+    downloadingReader.value = true;
+    try {
+        await downloadNfcReader();
+    } catch (e) {
+        alert("No se pudo descargar el lector NFC. Intenta nuevamente.");
+    } finally {
+        downloadingReader.value = false;
     }
 };
 </script>

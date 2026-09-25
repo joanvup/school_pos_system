@@ -155,6 +155,9 @@
                     <p class="text-xs text-gray-400 font-bold mt-1">Acerque la tarjeta al lector NFC ACR122U</p>
                 </div>
                 <input ref="rfidInput" v-model="rfidCode" @keyup.enter="identifyCard" type="password" class="w-full border-4 border-blue-100 bg-gray-50 rounded-2xl p-4 text-center text-2xl font-black text-primary outline-none" placeholder="••••••">
+                <button @click="downloadReader" :disabled="downloadingReader" class="w-full py-3 bg-blue-50 text-primary rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-100 transition-colors disabled:opacity-50">
+                    {{ downloadingReader ? 'Preparando descarga...' : '⬇️ Descargar lector NFC' }}
+                </button>
                 <button @click="closeModal" class="w-full py-4 bg-red-50 text-red-600 rounded-2xl font-black text-xs uppercase tracking-widest">Cancelar</button>
             </div>
             <div v-else class="space-y-4">
@@ -190,7 +193,7 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue';
-import api from '../api/axios';
+import api, { downloadNfcReader } from '../api/axios';
 import { useAuthStore } from '../stores/auth';
 import { useConfigStore } from '../stores/config'; // Importante para la URL del logo
 import { formatMoney } from '../utils/formatters';
@@ -213,6 +216,7 @@ const rfidInput = ref(null);
 const cardHolder = ref(null);
 const processing = ref(false);
 const errorMessage = ref('');
+const downloadingReader = ref(false);
 
 const loadPOSData = async () => {
     loading.value = true;
@@ -282,6 +286,18 @@ const resetModal = () => {
 };
 
 const identifying = ref(false);
+
+const downloadReader = async () => {
+    if (downloadingReader.value) return;
+    downloadingReader.value = true;
+    try {
+        await downloadNfcReader();
+    } catch (e) {
+        alert("No se pudo descargar el lector NFC. Intenta nuevamente.");
+    } finally {
+        downloadingReader.value = false;
+    }
+};
 
 const identifyCard = async () => {
     if (!rfidCode.value || identifying.value || processing.value) return;

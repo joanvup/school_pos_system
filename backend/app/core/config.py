@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     ALLOWED_ORIGINS: str = "*"
     FRONTEND_URL: str = "http://localhost:5173" # Valor por defecto para desarrollo
+    NFC_EXECUTABLE_PATH: str = ""
+    NFC_EXECUTABLE_VERSION: str = "1.0.0"
 
     PAYU_MERCHANT_ID: str
     PAYU_API_KEY: str

@@ -181,6 +181,15 @@ npm install
 npm run build        # genera frontend/dist (PWA)
 ```
 
+### 5.1 Publicar el ejecutable del lector NFC
+
+El botón de descarga usa `GET /api/v1/downloads/nfc-reader` y solo está disponible para usuarios `admin`, `supervisor` y `vendedor`.
+
+1. En Windows, ejecuta `compilar_lector_exe.bat` y verifica que exista `backend/dist/ACR122U_NFC.exe`.
+2. Publica ese archivo en el servidor o en el almacenamiento definido para la instalación.
+3. En el `.env` del backend, configura `NFC_EXECUTABLE_PATH` si el archivo no está en `backend/dist` y actualiza `NFC_EXECUTABLE_VERSION` para cada release.
+4. El endpoint entrega un nombre versionado y el hash SHA-256 en la cabecera `X-Content-SHA256`.
+
 ### 6️⃣ Nginx
 
 Configurar el virtual host en `/etc/nginx/sites-available/school_pos`:

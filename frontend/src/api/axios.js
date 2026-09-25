@@ -34,5 +34,23 @@ api.interceptors.response.use(
         return Promise.reject(error);
     }
 );
-export { BASE_URL };
+
+const downloadNfcReader = async () => {
+    const response = await api.get('/downloads/nfc-reader', {
+        responseType: 'blob'
+    });
+    const disposition = response.headers['content-disposition'] || '';
+    const filenameMatch = disposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)"?/i);
+    const filename = filenameMatch?.[1] || 'ACR122U_NFC.exe';
+    const objectUrl = window.URL.createObjectURL(response.data);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 100);
+};
+
+export { BASE_URL, downloadNfcReader };
 export default api;
