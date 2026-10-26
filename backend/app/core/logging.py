@@ -70,7 +70,7 @@ def _route(request: Request) -> str:
             rendered = re.sub(
                 r"\{[^}]+\}", lambda _match: str(path_params[key]), rendered, count=1
             )
-    if rendered != template and actual.endswith(rendered):
+    if actual.endswith(rendered):
         template = actual[: len(actual) - len(rendered)] + template
     return template[:_MAX_ROUTE_LEN]
 

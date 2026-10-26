@@ -34,6 +34,18 @@ def test_request_log_uses_route_template_without_uid(client, caplog):
     assert all("UID-SECRETO-123" not in str(record.__dict__) for record in records)
 
 
+def test_request_log_includes_router_prefix(client, caplog):
+    with caplog.at_level(logging.INFO, logger="app.request"):
+        client.get(f"{API}/settings/public")
+
+    records = [
+        record
+        for record in caplog.records
+        if record.getMessage() == "request" and getattr(record, "status", None) == 200
+    ]
+    assert records[-1].route == f"{API}/settings/public"
+
+
 def test_reports_limit_is_bounded(client, user_factory, auth_headers):
     admin = user_factory(role=UserRole.ADMIN)
 
