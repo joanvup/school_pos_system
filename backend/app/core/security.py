@@ -2,7 +2,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Union
 from uuid import uuid4
 
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
 from passlib.context import CryptContext
 
 from app.core.config import settings
@@ -86,14 +87,12 @@ def decode_access_token(token: str) -> dict:
             audience=settings.JWT_AUDIENCE,
             issuer=settings.JWT_ISSUER,
             options={
-                "require_exp": True,
-                "require_iat": True,
-                "require_sub": True,
+                "require": ["exp", "iat", "sub"],
                 "verify_aud": True,
                 "verify_iss": True,
             },
         )
-    except JWTError as exc:
+    except PyJWTError as exc:
         raise InvalidTokenError("Token inválido o expirado") from exc
 
     if payload.get("typ") != "access":

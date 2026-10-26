@@ -6,6 +6,7 @@ estado y duración, para no filtrar datos personales ni secretos.
 
 import json
 import logging
+import re
 import time
 import uuid
 from contextvars import ContextVar
@@ -53,8 +54,25 @@ def configure_logging(level: int = logging.INFO) -> None:
 
 def _route(request: Request) -> str:
     route = request.scope.get("route")
-    path = getattr(route, "path", None) or request.url.path
-    return path[:_MAX_ROUTE_LEN]
+    template = getattr(route, "path", None)
+    if not template:
+        return request.url.path[:_MAX_ROUTE_LEN]
+
+    # FastAPI anida los routers incluidos: la ruta solo trae su tramo final.
+    # Reconstruimos el prefijo comparando la plantilla ya sustituida con la
+    # ruta real, sin registrar nunca los valores dinámicos.
+    actual = request.scope.get("path") or request.url.path
+    path_params = request.scope.get("path_params") or {}
+    rendered = template
+    for name in re.findall(r"\{([^}]+)\}", template):
+        key = name.split(":")[0]
+        if key in path_params:
+            rendered = re.sub(
+                r"\{[^}]+\}", lambda _match: str(path_params[key]), rendered, count=1
+            )
+    if rendered != template and actual.endswith(rendered):
+        template = actual[: len(actual) - len(rendered)] + template
+    return template[:_MAX_ROUTE_LEN]
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):

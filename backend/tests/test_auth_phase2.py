@@ -1,8 +1,8 @@
 """Autenticación Fase 2: JWT, cookies, CSRF, reset, lockout y secretos."""
 from datetime import datetime, timedelta, timezone
 
+import jwt
 import pytest
-from jose import jwt
 
 from app.api.api_v1.endpoints import auth as auth_endpoint
 from app.core import security

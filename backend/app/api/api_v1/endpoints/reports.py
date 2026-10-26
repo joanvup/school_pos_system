@@ -103,7 +103,7 @@ def read_sales_by_product(
 @router.get("/export/{report_type}")
 def export_report(
     report_type: str,
-    format: str = Query("excel", regex="^(excel|pdf)$"),
+    format: str = Query("excel", pattern="^(excel|pdf)$"),
     start_date: date = None,
     end_date: date = None,
     # --- CORRECCIÓN: Agregar estos parámetros que faltaban ---
