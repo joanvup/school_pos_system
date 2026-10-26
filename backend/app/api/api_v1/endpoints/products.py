@@ -7,11 +7,10 @@ from app.schemas.product import ProductCreate, ProductResponse, ProductUpdate
 from app.crud import crud_product
 from app.api import deps
 from app.models.user import User
-from app.models.product import Product 
+from app.models.product import Product
+from app.core.config import settings
+from app.utils.images import store_image
 
-import shutil
-import uuid
-import os
 from fastapi import UploadFile, File
 
 router = APIRouter()
@@ -86,21 +85,14 @@ async def upload_product_image(
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
-    # 1. Validar extensión
-    extension = file.filename.split(".")[-1]
-    if extension.lower() not in ["jpg", "jpeg", "png", "webp"]:
-        raise HTTPException(status_code=400, detail="Formato de imagen no permitido")
+    image_url = await store_image(
+        file,
+        subdir="products",
+        prefix=f"product-{product_id}",
+        max_bytes=settings.MAX_UPLOAD_BYTES,
+    )
 
-    # 2. Generar nombre único para evitar duplicados
-    filename = f"{uuid.uuid4()}.{extension}"
-    file_path = os.path.join("uploads", filename)
-
-    # 3. Guardar archivo físicamente
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    # 4. Actualizar ruta en DB (URL relativa)
-    product.image_url = f"/uploads/{filename}"
+    product.image_url = image_url
     db.commit()
 
     return {"image_url": product.image_url}

@@ -1,14 +1,13 @@
-import os
-import shutil
-
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.secret_store import encrypt_secret
 from app.db.session import get_db
 from app.api import deps
 from app.models.setting import SystemSetting
 from app.models.user import User
+from app.utils.images import store_image
 
 router = APIRouter()
 
@@ -81,18 +80,15 @@ async def upload_school_logo(
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_admin),
 ):
-    upload_dir = "uploads/branding"
-    if not os.path.exists(upload_dir):
-        os.makedirs(upload_dir)
-
-    extension = file.filename.split(".")[-1]
-    filename = f"school_logo.{extension}"
-    file_path = os.path.join(upload_dir, filename)
-
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    logo_url = f"/uploads/branding/{filename}"
+    logo_url = await store_image(
+        file,
+        subdir="branding",
+        prefix="school-logo",
+        filename="school_logo.png",
+        force_png=True,
+        max_side=1024,
+        max_bytes=settings.MAX_UPLOAD_BYTES,
+    )
 
     db_setting = (
         db.query(SystemSetting).filter(SystemSetting.key == "school_logo").first()

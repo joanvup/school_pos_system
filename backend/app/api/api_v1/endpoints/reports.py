@@ -39,8 +39,8 @@ def read_sales_total(
     user_id: int = None,
     category_id: int = None,
     product_id: int = None,
-    skip: int = 0,
-    limit: int = 50,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_admin_or_supervisor)
 ):
@@ -261,10 +261,11 @@ def read_inventory_status(
 def read_recharges_history(
     start_date: date = None,
     end_date: date = None,
+    limit: int = Query(2000, ge=1, le=5000),
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_admin_or_supervisor)
 ):
-    results = crud_report.get_recharges_report(db, start_date, end_date)
+    results = crud_report.get_recharges_report(db, start_date, end_date)[:limit]
     
     formatted = []
     for tx in results:
@@ -290,6 +291,7 @@ def read_student_balance(
     card_id: int, # <--- Recibimos el ID de la tarjeta
     start_date: date = None,
     end_date: date = None,
+    limit: int = Query(1000, ge=1, le=2000),
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_admin_or_supervisor)
 ):
@@ -303,11 +305,22 @@ def read_student_balance(
     query = db.query(Transaction).filter(Transaction.card_id == card.id)
     if start_date: query = query.filter(func.date(Transaction.timestamp) >= start_date)
     if end_date: query = query.filter(func.date(Transaction.timestamp) <= end_date)
-    
-    txs = query.order_by(Transaction.timestamp.desc()).all()
 
-    recharges = sum(t.amount for t in txs if t.type == TransactionType.RECHARGE)
-    consumption = sum(abs(t.amount) for t in txs if t.type == TransactionType.PURCHASE)
+    recharges = (
+        query.filter(Transaction.type == TransactionType.RECHARGE)
+        .with_entities(func.coalesce(func.sum(Transaction.amount), 0))
+        .scalar()
+    )
+    consumption = (
+        query.filter(Transaction.type == TransactionType.PURCHASE)
+        .with_entities(func.coalesce(func.sum(func.abs(Transaction.amount)), 0))
+        .scalar()
+    )
+
+    # El listado se acota; los totales de arriba cubren todo el rango.
+    txs = query.order_by(Transaction.timestamp.desc()).limit(limit + 1).all()
+    truncated = len(txs) > limit
+    txs = txs[:limit]
 
     # El nombre depende de quién sea el dueño
     name = card.student.full_name if card.student else card.employee.full_name
@@ -319,6 +332,7 @@ def read_student_balance(
             "total_recharges": recharges,
             "total_consumption": consumption
         },
+        "truncated": truncated,
         "transactions": [
             {
                 "id": t.id,

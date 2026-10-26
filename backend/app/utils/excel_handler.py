@@ -1,3 +1,4 @@
+from app.core.config import settings
 from app.core.security import get_password_hash, validate_password
 from app.models.user import User, Student, UserRole
 import pandas as pd
@@ -6,6 +7,7 @@ import io
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from typing import Callable, Optional
 
 
 def _row_password(row, column: str, required: bool) -> str | None:
@@ -126,19 +128,35 @@ def generate_employees_template() -> io.BytesIO:
     output.seek(0)
     return output
 
-def process_students_file(file_content, db: Session, task_id: str, progress_dict: dict):
+def _report_progress(progress_cb: Optional[Callable[[int], None]], percent: int) -> None:
+    if progress_cb is not None:
+        progress_cb(max(0, min(100, percent)))
+
+
+def process_students_file(
+    file_content,
+    db: Session,
+    progress_cb: Optional[Callable[[int], None]] = None,
+):
     try:
         df = pd.read_excel(io.BytesIO(file_content))
         df.columns = [c.lower().strip().replace(" ", "_") for c in df.columns]
     except Exception as e:
         return {"error": f"Archivo inválido: {str(e)}"}
 
+    if len(df) > settings.MAX_IMPORT_ROWS:
+        return {
+            "error": (
+                f"El archivo tiene {len(df)} filas y el máximo es "
+                f"{settings.MAX_IMPORT_ROWS}"
+            )
+        }
+
     total_rows = len(df) 
     res = {"total": total_rows, "created": 0, "updated": 0, "errors": []}
 
     for index, row in df.iterrows():
-        if task_id in progress_dict:
-            progress_dict[task_id]["progress"] = int(((index + 1) / total_rows) * 100)
+        _report_progress(progress_cb, int(((index + 1) / total_rows) * 100))
         
         try:
             email = str(row["parent_email"]).strip()
@@ -197,19 +215,30 @@ def process_students_file(file_content, db: Session, task_id: str, progress_dict
     res["updated"] = int(res["updated"])
     return res
 
-def process_employees_file(file_content, db: Session, task_id: str, progress_dict: dict):
+def process_employees_file(
+    file_content,
+    db: Session,
+    progress_cb: Optional[Callable[[int], None]] = None,
+):
     try:
         df = pd.read_excel(io.BytesIO(file_content))
         df.columns = [c.lower().strip().replace(" ", "_") for c in df.columns]
     except Exception as e:
         return {"error": str(e)}
 
+    if len(df) > settings.MAX_IMPORT_ROWS:
+        return {
+            "error": (
+                f"El archivo tiene {len(df)} filas y el máximo es "
+                f"{settings.MAX_IMPORT_ROWS}"
+            )
+        }
+
     total_rows = len(df)
     res = {"total": total_rows, "created": 0, "updated": 0, "errors": []}
 
     for index, row in df.iterrows():
-        if task_id in progress_dict:
-            progress_dict[task_id]["progress"] = int(((index + 1) / total_rows) * 100)
+        _report_progress(progress_cb, int(((index + 1) / total_rows) * 100))
         try:
             email = str(row["email"]).strip()
             full_name = str(row["full_name"]).strip()

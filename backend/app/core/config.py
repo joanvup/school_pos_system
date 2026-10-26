@@ -43,7 +43,11 @@ class Settings(BaseSettings):
     APP_TIMEZONE: str = "America/Bogota"
 
     MAX_IMPORT_BYTES: int = 10 * 1024 * 1024
+    MAX_IMPORT_ROWS: int = 5000
     MAX_UPLOAD_BYTES: int = 2 * 1024 * 1024
+    RATE_LIMIT_PAYMENT_INIT_PER_MINUTE: int = 10
+    RATE_LIMIT_PASSWORD_RECOVERY_PER_HOUR: int = 5
+    RATE_LIMIT_PASSWORD_RECOVERY_PER_IP_HOUR: int = 20
 
     ADMIN_EMAIL: str = ""
     ADMIN_INITIAL_PASSWORD: str = ""

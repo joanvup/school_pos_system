@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.api import deps
 from app.api.api_v1.endpoints.payments import handle_payu_notification_request
+from app.core.config import settings
+from app.core.throttle import enforce_rate_limit
 from app.crud import crud_payment_gateway
 from app.db.session import get_db
 from app.models.user import User
@@ -39,6 +41,12 @@ def init_recharge(
     """Alias legacy de /payments/init. Se retira tras actualizar el frontend."""
     crud_payment_gateway.seed_gateway_settings(db)
     get_active_provider(db)
+    enforce_rate_limit(
+        db,
+        f"payments-init:{current_user.id}",
+        limit=settings.RATE_LIMIT_PAYMENT_INIT_PER_MINUTE,
+        window_seconds=60,
+    )
 
     card_uid = str(payload.get("card_uid") or "").strip()
     if not card_uid:

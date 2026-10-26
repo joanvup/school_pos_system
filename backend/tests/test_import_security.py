@@ -20,8 +20,6 @@ def test_employee_import_cannot_touch_admin(db, user_factory):
     result = process_employees_file(
         xlsx([{"email": admin.email, "full_name": "Secuestrado", "password": "OtraClave2026"}]),
         db,
-        "task-1",
-        {},
     )
 
     db.refresh(admin)
@@ -37,8 +35,6 @@ def test_new_employee_requires_explicit_password(db):
     result = process_employees_file(
         xlsx([{"email": "nuevo@test.local", "full_name": "Nuevo Empleado"}]),
         db,
-        "task-2",
-        {},
     )
 
     assert result["created"] == 0
@@ -58,8 +54,6 @@ def test_new_employee_with_weak_password_is_rejected(db):
             ]
         ),
         db,
-        "task-3",
-        {},
     )
 
     assert result["created"] == 0
@@ -78,8 +72,6 @@ def test_new_employee_with_valid_password_is_created(db):
             ]
         ),
         db,
-        "task-4",
-        {},
     )
 
     user = db.query(User).filter(User.email == "valido@test.local").one()
@@ -95,8 +87,6 @@ def test_existing_employee_without_password_keeps_it(db, user_factory):
     result = process_employees_file(
         xlsx([{"email": employee.email, "full_name": "Nombre Actualizado"}]),
         db,
-        "task-5",
-        {},
     )
 
     db.refresh(employee)
@@ -123,8 +113,6 @@ def test_student_import_cannot_touch_admin(db, user_factory):
             ]
         ),
         db,
-        "task-6",
-        {},
     )
 
     db.refresh(admin)
@@ -146,8 +134,6 @@ def test_new_parent_requires_password(db):
             ]
         ),
         db,
-        "task-7",
-        {},
     )
 
     assert result["created"] == 0
@@ -169,8 +155,6 @@ def test_new_parent_and_student_are_created(db):
             ]
         ),
         db,
-        "task-8",
-        {},
     )
 
     parent = db.query(User).filter(User.email == "padre-ok@test.local").one()
@@ -178,3 +162,43 @@ def test_new_parent_and_student_are_created(db):
     assert parent.role == UserRole.PADRE
     assert parent.must_change_password is True
     assert db.query(Student).filter(Student.parent_id == parent.id).count() == 1
+
+
+def test_import_reports_progress_through_callback(db):
+    seen: list[int] = []
+
+    result = process_employees_file(
+        xlsx(
+            [
+                {
+                    "email": "progreso@test.local",
+                    "full_name": "Empleado Progreso",
+                    "password": "ClaveSegura2026",
+                }
+            ]
+        ),
+        db,
+        seen.append,
+    )
+
+    assert result["created"] == 1
+    assert seen == [100]
+
+
+def test_import_rejects_files_over_row_cap(db, monkeypatch):
+    from app.utils import excel_handler
+
+    monkeypatch.setattr(excel_handler.settings, "MAX_IMPORT_ROWS", 1)
+
+    result = process_employees_file(
+        xlsx(
+            [
+                {"email": "a@test.local", "full_name": "A", "password": "ClaveSegura2026"},
+                {"email": "b@test.local", "full_name": "B", "password": "ClaveSegura2026"},
+            ]
+        ),
+        db,
+    )
+
+    assert "máximo" in result["error"]
+    assert db.query(User).filter(User.email.in_(["a@test.local", "b@test.local"])).count() == 0

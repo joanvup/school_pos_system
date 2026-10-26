@@ -14,3 +14,4 @@ from app.models.category import Category
 from app.models.stock_adjustment import StockAdjustment, StockAdjustmentDetail
 from app.models.setting import SystemSetting
 from app.models.payment_gateway_settings import PaymentGatewaySetting
+from app.models.ops import ImportJob, RequestThrottle

@@ -3,7 +3,7 @@ import secrets
 from datetime import timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.api import deps
 from app.core import security
 from app.core.config import settings
+from app.core.throttle import enforce_rate_limit, fingerprint
 from app.crud import crud_password_reset, crud_user
 from app.db.session import get_db
 from app.models.user import User
@@ -179,10 +180,29 @@ def logout_all(
 @router.post("/password-recovery")
 def recover_password(
     payload: PasswordRecoveryRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """Genera un token de un solo uso y envía el enlace. Respuesta uniforme."""
+    # Límite por IP además de por correo: evita usar la recuperación como
+    # bomba de correo contra muchas direcciones distintas.
+    client_ip = request.headers.get("X-Real-IP") or (
+        request.client.host if request.client else "unknown"
+    )
+    enforce_rate_limit(
+        db,
+        f"password-recovery-ip:{fingerprint(client_ip)}",
+        limit=settings.RATE_LIMIT_PASSWORD_RECOVERY_PER_IP_HOUR,
+        window_seconds=3600,
+    )
+
     email = crud_user.normalize_email(str(payload.email))
+    enforce_rate_limit(
+        db,
+        f"password-recovery:{fingerprint(email)}",
+        limit=settings.RATE_LIMIT_PASSWORD_RECOVERY_PER_HOUR,
+        window_seconds=3600,
+    )
     user = crud_user.get_user_by_email(db, email=email)
 
     if user and user.is_active:

@@ -9,11 +9,14 @@ from sqlalchemy import text
 
 from app.api.api_v1.api import api_router
 from app.core.config import settings
+from app.core.logging import RequestContextMiddleware, configure_logging
 from app.db.session import engine
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+configure_logging()
 
 IS_PRODUCTION = settings.ENVIRONMENT.lower() == "production"
 
@@ -71,6 +74,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(RequestContextMiddleware)
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
 

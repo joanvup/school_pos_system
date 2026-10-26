@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.api import deps
+from app.core.config import settings
+from app.core.throttle import enforce_rate_limit
 from app.crud import crud_payment_gateway
 from app.db.session import get_db
 from app.models.user import User, UserRole
@@ -87,6 +89,12 @@ def init_payment(
 ):
     crud_payment_gateway.seed_gateway_settings(db)
     get_active_provider(db)
+    enforce_rate_limit(
+        db,
+        f"payments-init:{current_user.id}",
+        limit=settings.RATE_LIMIT_PAYMENT_INIT_PER_MINUTE,
+        window_seconds=60,
+    )
 
     card = require_rechargeable_card(db, payload.card_uid, current_user)
 
