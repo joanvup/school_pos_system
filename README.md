@@ -1,12 +1,12 @@
 # 🥗 School POS System - Gestión de Cafetería Escolar Pro
 
-**School POS** es una plataforma integral de gestión de ventas para cafeterías escolares de alto nivel.
-Diseñada para eliminar el uso de efectivo dentro del colegio, permite pagos rápidos mediante **tarjetas RFID/NFC**, **recargas en línea multi-pasarela (PayU PSE, Wompi, Mercado Pago)** y un **control administrativo total** sobre el inventario y las finanzas.
+**School POS** es una plataforma integral de gestión de ventas para cafeterías escolares.
+Diseñada para eliminar el uso de efectivo dentro del colegio, permite pagos rápidos mediante **tarjetas RFID/NFC**, **recargas en línea con PayU PSE** y un **control administrativo total** sobre el inventario y las finanzas.
 
-![version](https://img.shields.io/badge/version-1.1.0-blue)
+![version](https://img.shields.io/badge/version-2.0.0-blue)
 ![backend](https://img.shields.io/badge/Backend-FastAPI-green)
 ![frontend](https://img.shields.io/badge/Frontend-Vue%203-blue)
-![payments](https://img.shields.io/badge/Pagos-Multi%20pasarela-purple)
+![payments](https://img.shields.io/badge/Pagos-PayU%20PSE-purple)
 ![pwa](https://img.shields.io/badge/PWA-Ready-orange)
 
 ---
@@ -16,11 +16,8 @@ Diseñada para eliminar el uso de efectivo dentro del colegio, permite pagos rá
 - 💳 **Ecosistema Cashless**
   Pagos con tarjetas inteligentes NFC (Mifare / ISO 14443A) y lectores NFC ACR122U vinculadas a estudiantes y empleados.
 
-- 💰 **Pasarelas de Pago Intercambiables**
-  - **PayU Colombia (PSE)** — pasarela activa por defecto.
-  - **Wompi (Colombia)** — Nequi, PSE, QR, tarjetas.
-  - **Mercado Pago** — Checkout Pro / PSE / Nequi.
-  - El administrador **cambia la pasarela activa desde el panel web** (`💳 Pasarela de pago`, `/admin/payments`) **sin redeploy**, con una sola pasarela activa a la vez.
+- 💰 **Recargas con PayU PSE**
+  Pasarela única registrada en el sistema. Las recargas solo se acreditan cuando PayU envía una notificación **firmada**, del merchant correcto y por el monto exacto de la transacción.
 
 - 🖥️ **Terminal de Ventas (POS)**
   Interfaz táctil de alto impacto optimizada para tablets y móviles, con fotos de productos y categorías dinámicas.
@@ -39,36 +36,41 @@ Diseñada para eliminar el uso de efectivo dentro del colegio, permite pagos rá
 
 ---
 
-## 🏗️ Arquitectura de Pasarelas de Pago
+## 🏗️ Arquitectura de Pagos
 
-Cada pasarela implementa el contrato `PaymentProvider` (`backend/app/payment_providers/`):
+Solo existe un proveedor registrado. El contrato `PaymentProvider` se conserva para poder añadir pasarelas en el futuro:
 
 ```
 payment_providers/
-├── base.py              → PaymentProvider (ABC): get_methods / init_recharge / handle_notification
-├── registry.py          → register() + get_provider() + get_active_provider() (fallback seguro a PayU)
-├── payu_provider.py     → PayU PSE (activa por defecto; mismo contrato de hoy)
-├── wompi_provider.py    → Wompi (Nequi / PSE / QR / tarjeta)
-├── mercadopago_provider.py → Mercado Pago (Checkout Pro / PSE / Nequi)
-└── __init__.py          → registra los providers al importar el paquete
+├── base.py          → PaymentProvider (ABC): get_methods / init_recharge / handle_notification
+├── registry.py      → register() + get_provider() + get_active_provider()
+├── payu_provider.py → PayU PSE (delegado a app/services/payment_service.py)
+└── __init__.py      → registra únicamente PayU
 ```
 
-La tabla `payment_gateway_settings` guarda la pasarela activa, modo test y si tiene credenciales configuradas. Al arrancar, `main.py` siembra las 3 (PayU activa) y aplica migraciones idempotentes (columnas `gateway`, `currency`, `raw_notification`, `response_code` en `transactions`).
+La tabla `payment_gateway_settings` se siembra solo con PayU. `get_provider("wompi")` y `get_provider("mercadopago")` devuelven `None` y sus endpoints responden `404`.
 
-### 🧭 Endpoints neutros de pago (`/api/v1/payments/*`)
+La lógica sensible vive en [`backend/app/services/payment_service.py`](backend/app/services/payment_service.py):
+
+- La **referencia se genera en el servidor** (`RECH-<128 bits>`); nunca se acepta del cliente.
+- La transacción se crea en estado `pending` y se confirma **antes** de llamar a PayU (nunca hay HTTP externo dentro de una transacción de BD).
+- El webhook valida `merchant_id`, firma MD5 (comparación en tiempo constante), `currency`, monto y referencia; bloquea **tarjeta → transacción**, abona `tx.amount` exactamente una vez y guarda la notificación cruda en `payment_notifications`.
+- Los duplicados responden `200` sin segundo abono.
+
+### 🧭 Endpoints de pago (`/api/v1/payments/*`)
 
 | Método | Endpoint | Descripción |
 |---|---|---|
 | GET | `/payments/providers` | Lista pasarelas (admin) |
-| POST | `/payments/providers/activate` | Cambia la pasarela activa (admin) |
-| GET | `/payments/methods` | Métodos de la pasarela activa para el modal de recarga |
-| POST | `/payments/init` | Inicia la recarga → `redirect_url` |
-| POST | `/payments/notify/{gateway}` | Webhook de confirmación (PayU/Wompi/MP) |
-| GET | `/payments/status/{reference}` | Estado de una recarga |
+| POST | `/payments/providers/activate` | Activa PayU (única soportada) |
+| GET | `/payments/methods` | Métodos de la pasarela activa |
+| POST | `/payments/init` | Inicia la recarga; valida propiedad de la tarjeta y límites |
+| POST | `/payments/notify/payu` | **Webhook canónico** de PayU |
+| GET | `/payments/status/{reference}` | Estado de la recarga (autenticado y con permisos) |
 
-Los endpoints legacy `/recharges/*` (incluido `payu-confirmation`, **endurecido**: validación de `merchant_id`, firma, idempotencia y auditoría `raw_notification`) se mantienen como compatibilidad.
+Los endpoints legacy `/recharges/init-payu-pse`, `/recharges/banks` y `/recharges/payu-confirmation` delegan en el mismo servicio. `POST /recharges/simulate-pse` fue **eliminado** (`404`).
 
-> **Wompi / Mercado Pago**: requieren crear su cuenta de desarrollador (gratis, modo sandbox). Mientras no existan credenciales en el `.env`, el panel las muestra como "Faltan credenciales" y **PayU sigue operando sin cambios**.
+> Configure en el dashboard de PayU la URL de confirmación `https://<dominio>/api/v1/payments/notify/payu` y la de respuesta `https://<dominio>/payment-result?reference=<referencia>`. Actualice PayU **antes** de retirar el alias legacy en una release posterior.
 
 ---
 
@@ -134,46 +136,75 @@ Configurar `.env` (usa `backend/.env.example` como plantilla):
 
 ```bash
 # App
+ENVIRONMENT="production"
 DATABASE_URL="mysql+pymysql://pos_user:TuClaveSegura@localhost/school_pos_db"
-SECRET_KEY="cambia-esta-clave"
+SECRET_KEY="una-clave-aleatoria-de-32-caracteres-o-mas"
 ALGORITHM="HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES=30
-ALLOWED_ORIGINS="*"
+ALLOWED_ORIGINS="https://TU_DOMINIO"          # nunca "*" en producción
+PUBLIC_BASE_URL="https://TU_DOMINIO"
 FRONTEND_URL="https://TU_DOMINIO"
+APP_TIMEZONE="America/Bogota"
 
-# PayU (activa por defecto)
+# Sesiones y contraseñas
+SETTINGS_ENCRYPTION_KEY="otra-clave-aleatoria-de-32-caracteres-o-mas"
+MAX_FAILED_LOGIN_ATTEMPTS=5
+LOGIN_LOCKOUT_MINUTES=15
+PASSWORD_RESET_EXPIRE_MINUTES=30
+
+# Admin inicial (solo seed; no sobrescribe un admin existente)
+ADMIN_EMAIL="admin@tudominio.com"
+ADMIN_INITIAL_PASSWORD="ClaveInicial2026"
+ADMIN_FORCE_CHANGE=true
+
+# PayU PSE (única pasarela)
 PAYU_MERCHANT_ID="..."
 PAYU_API_KEY="..."
 PAYU_API_LOGIN="..."
 PAYU_ACCOUNT_ID="..."
-PAYU_IS_TEST=True
-PAYU_URL="https://sandbox.api.payulatam.com/payments-api/4.0/service.cgi"
+PAYU_IS_TEST=false
+PAYU_URL="https://api.payulatam.com/payments-api/4.0/service.cgi"
 
-# Wompi (activa cuando completes credenciales sandbox)
-WOMPI_PUBLIC_KEY="pub_test_..."
-WOMPI_PRIVATE_KEY="prv_test_..."
-WOMPI_WEBHOOK_SECRET="..."
-WOMPI_IS_TEST=True
-WOMPI_URL="https://sandbox.wompi.co/v1"
-
-# Mercado Pago
-MP_ACCESS_TOKEN="TEST-..."
-MP_WEBHOOK_SECRET="..."
-MP_URL="https://api.mercadopago.com"
+# Límites
+PAYMENT_CURRENCY="COP"
+MIN_RECHARGE_AMOUNT=1000
+MAX_RECHARGE_AMOUNT=500000
+MAX_IMPORT_BYTES=10485760
+MAX_UPLOAD_BYTES=2097152
 ```
 
-> **Las tablas y columnas nuevas se crean/actualizan solas al arrancar** (`Base.metadata.create_all` + migraciones idempotentes en `main.py`). No hace falta SQL manual para `pending_balance`, `gateway`, etc.
+> En `ENVIRONMENT=production` la aplicación **no publica** `/docs`, `/redoc` ni OpenAPI, exige `ALLOWED_ORIGINS` explícito, `SECRET_KEY` y `SETTINGS_ENCRYPTION_KEY` de 32+ caracteres, y `PUBLIC_BASE_URL` con HTTPS.
 
-### 4️⃣ Despliegue repetible (recomendado)
+> La sesión web viaja en una cookie `HttpOnly` (`school_pos_session`) con protección CSRF de doble envío (`school_pos_csrf` + cabecera `X-CSRF-Token`). Los clientes de API pueden seguir usando `Authorization: Bearer <token>`; el token incluye `iss`, `aud`, `jti`, `iat` y `ver`, y se revoca al cambiar la contraseña o desactivar el usuario.
+
+### 4️⃣ Esquema de base de datos (Alembic)
+
+La aplicación **no crea ni altera tablas al arrancar**. El esquema se aplica explícitamente:
+
+```bash
+cd /var/www/school_pos/backend
+source venv/bin/activate
+alembic upgrade head
+python -m app.db.init_db          # seed idempotente: PayU + admin inicial
+python -m app.db.init_db --check  # verifica tablas, PayU activo y admin
+```
+
+Use un usuario de BD con permisos DDL solo para las migraciones; el usuario de la aplicación puede quedarse sin permisos DDL.
+
+> ⚠️ **Recreación de esquema:** si viene de una instalación anterior sin movimientos (`transactions = 0`), revise `backend/scripts/reset_db.py`. Es destructivo, exige `ALLOW_DB_RESET=true` y `--yes-i-have-a-backup`, y debe ejecutarse solo después de un backup verificado y con confirmación explícita.
+
+### 5️⃣ Despliegue repetible (recomendado)
 
 ```bash
 cd /var/www/school_pos
-./fix_deploy.sh      # git pull → verifica bcrypt → migraciones → reinicia systemd → revisa logs/login
+./fix_deploy.sh      # git pull → bcrypt → alembic upgrade head → reinicia systemd → health/login
 ```
 
-El script autodetecta el servicio systemd y la ruta del backend (`BACKEND_DIR` / `SERVICE_NAME` si quieres forzarlos).
+El script autodetecta el servicio systemd y la ruta del backend (`BACKEND_DIR` / `SERVICE_NAME` si quieres forzarlos). Aplica `alembic upgrade head` **antes** de reiniciar; si la migración falla, no toca el servicio.
 
-### 5️⃣ Frontend (Vue.js)
+Después de desplegar, verifique `GET /health` y ejecute el smoke test de la sección de pruebas.
+
+### 6️⃣ Frontend (Vue.js)
 
 ```bash
 cd frontend
@@ -181,7 +212,7 @@ npm install
 npm run build        # genera frontend/dist (PWA)
 ```
 
-### 5.1 Publicar el ejecutable del lector NFC
+### 6.1 Publicar el ejecutable del lector NFC
 
 El botón de descarga usa `GET /api/v1/downloads/nfc-reader` y solo está disponible para usuarios `admin`, `supervisor` y `vendedor`.
 
@@ -190,7 +221,7 @@ El botón de descarga usa `GET /api/v1/downloads/nfc-reader` y solo está dispon
 3. En el `.env` del backend, configura `NFC_EXECUTABLE_PATH` si el archivo no está en `backend/dist` y actualiza `NFC_EXECUTABLE_VERSION` para cada release.
 4. El endpoint entrega un nombre versionado y el hash SHA-256 en la cabecera `X-Content-SHA256`.
 
-### 6️⃣ Nginx
+### 7️⃣ Nginx
 
 Configurar el virtual host en `/etc/nginx/sites-available/school_pos`:
 - Proxy inverso al backend (puerto 8000).
@@ -198,16 +229,32 @@ Configurar el virtual host en `/etc/nginx/sites-available/school_pos`:
 
 ---
 
-## 🧪 Pruebas del Contrato de Pasarelas
+## 🧪 Pruebas
 
-Sin red real ni base de datos (mocks de `requests` + sesión falsa). Validan métodos expuestos, resultado normalizado, abono de saldo e idempotencia:
+La suite usa `pytest` con SQLite en memoria para pruebas funcionales y MySQL real para concurrencia.
 
 ```bash
 cd backend
-python -m unittest discover -s tests -v   # esperado: OK (16 tests)
+source venv/bin/activate          # o venv\Scripts\activate en Windows
+python -m pytest -q
 ```
 
-Cubre PayU, Wompi, Mercado Pago y el registro/activación por registry.
+Cubre, entre otros:
+
+- **Autorización:** creación de usuarios solo por admin, settings privados, `cards/check` y `sales/recent` solo para staff, límites diarios solo admin/supervisor.
+- **Autenticación:** claims y tipo de token, revocación por `token_version`, cookie `HttpOnly` + CSRF, logout, bloqueo por intentos fallidos, cambio forzado de contraseña, recuperación con token de un solo uso y cifrado de `smtp_pass` en reposo.
+- **PayU:** firma válida/ inválida/ausente, merchant, monto y moneda; abono exacto una sola vez; replay y notificaciones rechazadas.
+- **Dinero:** ventas atómicas, saldo/stock insuficiente, cupo diario, reversos únicos, compras y ajustes de stock.
+- **Importación:** no puede modificar admins ni crear cuentas con contraseñas débiles.
+- **Esquema:** cantidades/costos positivos, política de contraseñas y validaciones de producción.
+
+Concurrencia real (requiere MySQL descartable):
+
+```bash
+TEST_DATABASE_URL="mysql+pymysql://user:pass@localhost/school_pos_test" python -m pytest tests/test_concurrency_mysql.py -q
+```
+
+**Smoke test manual antes de reanudar pagos:** login admin (cookie + CSRF) → cambio de contraseña forzado en el primer ingreso → crear padre/estudiante/tarjeta → venta POS → reverso → recarga PayU sandbox con webhook válido y falso → consulta de estado autenticada → intento anónimo de crear admin/consultar tarjeta/leer settings → reimportar empleados y confirmar que no cambia la clave de un admin.
 
 ---
 
@@ -218,7 +265,7 @@ Cubre PayU, Wompi, Mercado Pago y el registro/activación por registry.
 - Configuración del sistema (logo, nombre de la App y SMTP).
 - Gestión de usuarios (padres, empleados y vendedores).
 - Carga masiva desde Excel.
-- **Selección de la pasarela de pago activa** (`/admin/payments`).
+- **Estado de la pasarela de pago** (`/admin/payments`, solo PayU PSE).
 - Auditoría financiera mediante confrontación de saldos.
 - Acceso completo a reportes gerenciales en **PDF** y **Excel**.
 
@@ -232,19 +279,20 @@ Cubre PayU, Wompi, Mercado Pago y el registro/activación por registry.
 
 - Módulo POS con lectura de tarjetas NFC mediante lector ACR122U.
 - Identificación del usuario, validación de saldo y cupo diario.
-- Reversión de ventas recientes (según permisos).
+- Las reversiones requieren un administrador.
 
 ### 👨‍👩‍👧‍👦 Padre de Familia
 
 - Visualización del saldo en tiempo real de sus hijos.
-- **Recargas en línea con la pasarela activa** (PayU PSE / Wompi / Mercado Pago).
+- **Recargas en línea con PayU PSE**.
 - Control detallado de gastos por productos.
-- Bloqueo de tarjetas en caso de pérdida.
+- Puede **bloquear** la tarjeta en caso de pérdida; el desbloqueo y el cambio de cupo los gestiona el colegio.
 
 ### 💳 Empleado / Staff
 
 - Consulta de saldo y movimientos personales.
-- Recarga de tarjeta propia vía la pasarela activa.
+- Recarga de su propia tarjeta con PayU PSE.
+- Puede bloquear su tarjeta; el desbloqueo lo realiza un administrador.
 - Cambio de contraseña.
 
 ---
@@ -263,19 +311,34 @@ Cubre PayU, Wompi, Mercado Pago y el registro/activación por registry.
 ## 🛡️ Seguridad y Mantenimiento
 
 - 🔐 **Webhooks endurecidos**
-  El webhook de PayU valida `merchant_id` y firma, aplica **idempotencia** (una notificación duplicada jamás abona dos veces) y archiva la **notificación cruda** (`raw_notification`) en cada transacción para auditoría.
+  Solo se abona una recarga si la notificación de PayU tiene `merchant_id` correcto, firma válida, moneda y monto exactos. El procesamiento bloquea tarjeta y transacción, es idempotente y archiva cada notificación en `payment_notifications` (IP, firma válida, motivo y cuerpo crudo) para auditoría y replay.
 
-- 🗄️ **Migraciones automáticas**
-  `main.py` ejecuta migraciones idempotentes al arrancar (`pending_balance`, columnas de pasarela y seed de `payment_gateway_settings`).
+- 💰 **Integridad del dinero**
+  Saldos, precios y cupos usan `DECIMAL(12,2)`; ventas, reversos, compras y ajustes usan bloqueos `SELECT ... FOR UPDATE` en orden determinista y un único `commit`. Cantidades y costos deben ser positivos.
 
-- 🔑 **Privacidad**
-  Contraseñas almacenadas con hashing de una sola vía (**Bcrypt**).
+- 🔐 **Sesiones endurecidas**
+  La web usa cookie `HttpOnly` + `SameSite` y protección CSRF de doble envío; los clientes de API pueden autenticarse con Bearer. El JWT valida `iss`/`aud`/`typ` y se revoca con `token_version` al cambiar la contraseña, desactivar la cuenta o cerrar todas las sesiones. El login bloquea la cuenta tras 5 intentos fallidos durante 15 minutos y responde con un mensaje uniforme (incluye verificación bcrypt ficticia para emails inexistentes).
+
+- 🔑 **Contraseñas y secretos**
+  Contraseñas con **Bcrypt** y política mínima (10 caracteres, letras y números, lista de claves comunes). La recuperación usa tokens aleatorios de un solo uso almacenados como hash SHA-256, con expiración y consumo atómico. `must_change_password` se aplica en el backend tras un reset administrativo o una importación. `smtp_pass` se guarda cifrado (Fernet, prefijo `enc:v1:`) y nunca se devuelve en las respuestas.
+
+- 🗄️ **Migraciones explícitas**
+  El esquema se gestiona con **Alembic** (`alembic upgrade head`). La aplicación no ejecuta DDL al arrancar.
+
+- 🔒 **Importación y privacidad**
+  La importación masiva no puede cambiar el rol ni la contraseña de usuarios existentes que no sean empleados/padres, ni reutilizar claves por defecto. `GET /settings/` nunca devuelve `smtp_pass`; el frontend público solo consume `/settings/public`.
+
+- ⏳ **Pendiente para Fase 3**
+  TOTP para administradores, CSP estricta, rate limiting en Nginx (login, recuperación, webhooks) y cabeceras de seguridad adicionales.
+
+- 🌐 **Superficie mínima**
+  `POST /users/` exige admin, los endpoints de tarjetas y ventas recientes exigen personal autenticado, y en producción se deshabilitan `/docs`, `/redoc` y OpenAPI. CORS solo acepta orígenes explícitos.
 
 - 📱 **PWA**
   Instalación como App en iOS y Android, con modo consulta offline. Tras cada despliegue, fuerza recarga con **Ctrl+F5** para actualizar el service worker.
 
 - 🧪 **Entornos de prueba**
-  Wompi y Mercado Pago se integran en modo **sandbox** (`*_IS_TEST=True`) usando sus llaves de prueba gratuitas; PayU opera con sus credenciales de prueba hasta pasar a producción.
+  Use `PAYU_IS_TEST=true` y el endpoint sandbox de PayU hasta validar el flujo completo. Las pruebas automatizadas no contactan servicios externos.
 
 ---
 
