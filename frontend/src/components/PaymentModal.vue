@@ -26,8 +26,12 @@
             <!-- MONTO -->
             <div>
               <label class="text-[10px] font-black text-gray-400 uppercase ml-2">Monto a Recargar</label>
-              <input v-model.number="form.amount" type="number" step="1000"
+              <input v-model.number="form.amount" type="number" :min="MIN_AMOUNT" :max="MAX_AMOUNT" step="1"
                      class="w-full mt-1 p-3 bg-gray-50 border-2 border-gray-100 rounded-2xl font-black text-xl text-primary outline-none focus:border-primary">
+              <p class="mt-1 text-[10px] font-medium"
+                 :class="amountValid ? 'text-gray-400' : 'text-red-500'">
+                Entre {{ formatMoney(MIN_AMOUNT) }} y {{ formatMoney(MAX_AMOUNT) }} (máximo 2 decimales).
+              </p>
             </div>
 
             <!-- MÉTODO -->
@@ -69,7 +73,7 @@
             <div v-if="error" class="text-red-500 text-sm font-bold text-center">{{ error }}</div>
 
             <div class="pt-4">
-              <button @click="handlePayment" :disabled="loading || needsBank && !form.bank_code || !form.buyer_dni || !form.buyer_email"
+              <button @click="handlePayment" :disabled="loading || !amountValid || (needsBank && !form.bank_code) || !form.buyer_dni || !form.buyer_email"
                       class="w-full bg-primary text-white py-5 rounded-[24px] font-black text-lg shadow-xl shadow-blue-100 active:scale-95 transition-all disabled:opacity-30 disabled:grayscale">
                 {{ loading ? 'CONECTANDO...' : '🚀 CONTINUAR PAGO' }}
               </button>
@@ -95,7 +99,7 @@ const props = defineProps({
   cardUid: String,
   currentBalance: { type: Number, default: 0 }
 });
-const emit = defineEmits(['close']);
+defineEmits(['close']);
 
 const loading = ref(false);
 const loadingMethods = ref(false);
@@ -105,19 +109,24 @@ const providerName = ref('');
 const banks = ref([]);
 const error = ref('');
 
+const MIN_AMOUNT = 1000;
+const MAX_AMOUNT = 500000;
+
 const form = reactive({
   amount: 50000,
   method: '',
   bank_code: null,
-  user_type: "0",
   buyer_dni_type: "CC",
   buyer_dni: "",
-  buyer_email: "",
-  phone: "",
-  address: ""
+  buyer_email: ""
 });
 
 const needsBank = computed(() => form.method === 'pse');
+
+const amountValid = computed(() => {
+  const value = Number(form.amount);
+  return Number.isFinite(value) && value >= MIN_AMOUNT && value <= MAX_AMOUNT;
+});
 
 async function loadMethods() {
   loadingMethods.value = true;
@@ -142,22 +151,38 @@ async function loadMethods() {
 
 watch(() => props.isOpen, (val) => {
   if (val) {
-    form.card_uid = props.cardUid;
     if (!form.buyer_email) form.buyer_email = authStore.user?.email || "";
     loadMethods();
   }
 });
 
 const handlePayment = async () => {
-  loading.value = true;
   error.value = '';
+
+  const amount = Math.round(Number(form.amount) * 100) / 100;
+  if (!Number.isFinite(amount) || amount < MIN_AMOUNT || amount > MAX_AMOUNT) {
+    error.value = `El monto debe estar entre ${formatMoney(MIN_AMOUNT)} y ${formatMoney(MAX_AMOUNT)}`;
+    return;
+  }
+
+  loading.value = true;
   try {
-    const { data } = await api.post('/payments/init', form);
-    if (data.redirect_url) {
-      window.location.href = data.redirect_url;
-    } else {
-      emit('close');
+    const { data } = await api.post('/payments/init', {
+      card_uid: props.cardUid,
+      amount,
+      method: form.method,
+      bank_code: form.bank_code || '',
+      buyer_dni: form.buyer_dni,
+      buyer_email: form.buyer_email,
+      buyer_name: authStore.user?.full_name || ''
+    });
+
+    const redirect = typeof data.redirect_url === 'string' ? data.redirect_url : '';
+    if (!redirect.startsWith('https://')) {
+      error.value = 'Respuesta inválida de la pasarela';
+      return;
     }
+    window.location.href = redirect;
   } catch (e) {
     error.value = e?.response?.data?.detail || 'Falla en conexión';
   } finally {

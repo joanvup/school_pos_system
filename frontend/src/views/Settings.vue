@@ -87,7 +87,12 @@
                 </div>
                 <div>
                     <label class="text-[10px] font-black text-gray-400 uppercase">Contraseña / Token</label>
-                    <input v-model="settings.smtp_pass" type="password" class="w-full border-2 border-gray-50 bg-gray-50 rounded-xl p-3 outline-none focus:border-primary">
+                    <input v-model="settings.smtp_pass" type="password"
+                           :placeholder="smtpPassSet ? 'Configurada — dejar vacío para mantener' : 'Sin configurar'"
+                           class="w-full border-2 border-gray-50 bg-gray-50 rounded-xl p-3 outline-none focus:border-primary">
+                    <p v-if="smtpPassSet" class="mt-1 text-[10px] text-gray-400 font-medium">
+                        Hay una contraseña guardada. Si dejas el campo vacío no se modifica.
+                    </p>
                 </div>
             </div>
             <p class="mt-4 text-[10px] text-orange-400 font-medium">* Estos datos son necesarios para que funcione la recuperación de contraseña.</p>
@@ -115,6 +120,7 @@ const configStore = useConfigStore();
 const baseUrl = configStore.baseUrl;
 const loading = ref(false);
 const downloadingReader = ref(false);
+const smtpPassSet = ref(false);
 const settings = ref({
     school_name: '',
     school_logo: '',
@@ -130,18 +136,25 @@ const settings = ref({
 const loadSettings = async () => {
     try {
         const { data } = await api.get('/settings/');
-        // Fusionar datos recibidos con el objeto inicial
-        Object.assign(settings.value, data);
+        const { smtp_pass_set, ...rest } = data;
+        Object.assign(settings.value, rest);
+        // El backend nunca devuelve el secreto: solo si está configurado.
+        settings.value.smtp_pass = '';
+        smtpPassSet.value = !!smtp_pass_set;
     } catch (e) { console.error(e); }
 };
 
 const saveSettings = async () => {
     loading.value = true;
     try {
-        await api.put('/settings/', settings.value);
+        const payload = { ...settings.value };
+        // Campo vacío = conservar la contraseña actual.
+        if (!payload.smtp_pass) delete payload.smtp_pass;
+
+        await api.put('/settings/', payload);
         alert("✅ Configuración guardada correctamente");
         // Recargar para asegurar consistencia
-        location.reload(); 
+        location.reload();
     } catch (e) {
         alert("Error al guardar");
     } finally {

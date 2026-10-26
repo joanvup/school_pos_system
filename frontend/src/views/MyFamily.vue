@@ -26,9 +26,7 @@
                     <span class="text-gray-500">Cupo Diario Máximo:</span>
                     <div class="font-bold text-gray-800">{{ formatMoney(student.card.daily_limit || 0) }}</div>
                 </div>
-                <button @click="openLimitModal(student)" class="text-blue-600 hover:bg-blue-100 p-2 rounded transition" title="Cambiar Cupo">
-                    ✏️ Editar
-                </button>
+                <span class="text-[10px] uppercase text-gray-400">Definido por el colegio</span>
             </div>
             
             <div class="flex flex-col gap-2 mt-4" v-if="student.card">
@@ -52,32 +50,19 @@
                     </div>
         
                     <button 
+                        v-if="student.card.status === 'active'"
                         @click="toggleCardStatus(student)" 
-                        class="text-xs px-3 py-1 rounded border transition font-bold"
-                        :class="student.card.status === 'active' 
-                            ? 'border-red-200 text-red-600 hover:bg-red-50' 
-                            : 'border-green-200 text-green-600 hover:bg-green-50'"
+                        class="text-xs px-3 py-1 rounded border transition font-bold border-red-200 text-red-600 hover:bg-red-50"
                     >
-                        {{ student.card.status === 'active' ? 'BLOQUEAR 🔒' : 'DESBLOQUEAR 🔓' }}
+                        BLOQUEAR 🔒
                     </button>
+                    <span v-else class="text-[10px] uppercase text-gray-400">
+                        Pide al colegio que la desbloquee
+                    </span>
                 </div>
             </div>
         </div>
       </div>
-    </div>
-
-    <!-- MODAL 1: PSE (Recarga) -->
-    <div v-if="showRecharge" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div class="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 text-center">
-            <h3 class="text-lg font-bold mb-4">Recargar Saldo</h3>
-            <p class="mb-2">Estudiante: <b>{{ selectedStudent?.full_name }}</b></p>
-            <div class="mb-4 text-left">
-                <label class="text-sm font-bold text-gray-700">Monto</label>
-                <input v-model.number="amount" type="number" step="5000" class="w-full border p-2 rounded mt-1">
-            </div>
-            <button @click="processRecharge" class="w-full bg-blue-600 text-white py-3 rounded font-bold">Pagar con PSE</button>
-            <button @click="showRecharge = false" class="mt-4 text-sm text-gray-500 underline">Cancelar</button>
-        </div>
     </div>
 
     <!-- MODAL 2: HISTORIAL DE MOVIMIENTOS (NUEVO) -->
@@ -159,35 +144,8 @@
             </div>
         </div>
     </div>
-    <!-- MODAL 3: CAMBIAR CUPO DIARIO -->
-    <div v-if="showLimitModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div class="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 text-center">
-            <h3 class="text-lg font-bold mb-4">Límite de Gasto Diario</h3>
-            <p class="mb-4 text-sm text-gray-600">
-                Estudiante: <b>{{ selectedStudent?.full_name }}</b>
-            </p>
-
-            <div class="text-left mb-4">
-                <label class="text-xs font-bold text-gray-500 uppercase">Nuevo Límite ($)</label>
-                <input 
-                    v-model.number="tempLimit" 
-                    type="number" 
-                    step="1000" 
-                    min="0"
-                    class="w-full border-2 border-blue-500 rounded p-2 text-lg font-bold outline-none"
-                    autofocus
-                >
-                <p class="text-xs text-gray-400 mt-1">Coloca 0 para bloquear compras o un monto alto para liberar.</p>
-            </div>
-
-            <button @click="saveLimit" class="w-full bg-blue-600 text-white py-3 rounded font-bold hover:bg-blue-700">
-                Guardar Cambio
-            </button>
-            <button @click="showLimitModal = false" class="mt-4 text-gray-500 underline text-sm">Cancelar</button>
-        </div>
-    </div>
-    <!-- MODAL 4: PSE PAYMENT -->
-    <PsePaymentModal 
+    <!-- MODAL 4: PAGO CON LA PASARELA ACTIVA -->
+    <PaymentModal 
         :is-open="isPseOpen" 
         :title="selectedTarget.name" 
         :card-uid="selectedTarget.uid"
@@ -202,8 +160,8 @@ import { ref, onMounted } from 'vue';
 import api from '../api/axios';
 import { formatMoney } from '../utils/formatters';
 
-// 1. IMPORTAR EL NUEVO COMPONENTE
-import PsePaymentModal from '../components/PsePaymentModal.vue';
+// 1. IMPORTAR EL MODAL DE PAGO
+import PaymentModal from '../components/PaymentModal.vue';
 
 const students = ref([]);
 const loading = ref(true);
@@ -224,14 +182,10 @@ const openRecharge = (student) => {
     isPseOpen.value = true;
 };
 
-// Variables de Recarga
-const showRecharge = ref(false);
-const selectedStudent = ref(null);
-const amount = ref(20000);
-
 // Variables de Historial
 const showHistoryModal = ref(false);
 const history = ref([]);
+const selectedStudent = ref(null);
 
 const historySkip = ref(0);
 const historyLimit = 20;
@@ -239,30 +193,7 @@ const hasMoreHistory = ref(true);
 
 // Variable para controlar qué fila muestra detalles
 const expandedRowId = ref(null);
-const showLimitModal = ref(false);
-const tempLimit = ref(0);
 
-// Funciones
-const openLimitModal = (student) => {
-    selectedStudent.value = student;
-    tempLimit.value = student.card.daily_limit || 0;
-    showLimitModal.value = true;
-};
-
-const saveLimit = async () => {
-    try {
-        await api.put(`/cards/${selectedStudent.value.card.uid}`, {
-            daily_limit: tempLimit.value
-        });
-        
-        // Actualizar visualmente
-        selectedStudent.value.card.daily_limit = tempLimit.value;
-        alert("Cupo diario actualizado correctamente.");
-        showLimitModal.value = false;
-    } catch (error) {
-        alert("Error: " + error.response?.data?.detail);
-    }
-};
 const toggleDetails = (txId) => {
     if (expandedRowId.value === txId) {
         expandedRowId.value = null; // Cerrar si ya estaba abierto
@@ -278,26 +209,6 @@ const loadFamily = async () => {
         students.value = data;
     } catch (error) { console.error(error); } 
     finally { loading.value = false; }
-};
-
-/* --- LOGICA RECARGA ---
-const openRecharge = (student) => {
-    selectedStudent.value = student;
-    amount.value = 20000;
-    showRecharge.value = true;
-}; */
-
-const processRecharge = async () => {
-    if(!selectedStudent.value.card) return alert("Sin tarjeta");
-    try {
-        await api.post('/recharges/simulate-pse', {
-            card_uid: selectedStudent.value.card.uid,
-            amount: amount.value
-        });
-        alert("¡Recarga Exitosa!");
-        showRecharge.value = false;
-        loadFamily();
-    } catch (error) { alert("Error: " + error.response?.data?.detail); }
 };
 
 // Abrir modal y cargar primeros 20
@@ -339,21 +250,16 @@ const fetchHistoryBatch = async () => {
     }
 };
 const toggleCardStatus = async (student) => {
-    const newStatus = student.card.status === 'active' ? 'blocked' : 'active';
-    const action = newStatus === 'blocked' ? 'BLOQUEAR' : 'ACTIVAR';
-    
-    if(!confirm(`¿Estás seguro de que deseas ${action} la tarjeta de ${student.full_name}?`)) return;
+    if (student.card.status !== 'active') return;
+
+    if (!confirm(`¿Estás seguro de que deseas BLOQUEAR la tarjeta de ${student.full_name}?`)) return;
 
     try {
-        // Endpoint PUT /cards/{uid}
         await api.put(`/cards/${student.card.uid}`, {
-            status: newStatus
+            status: 'blocked'
         });
-        
-        // Actualizamos visualmente sin recargar todo
-        student.card.status = newStatus;
-        alert(`Tarjeta ${newStatus === 'active' ? 'activada' : 'bloqueada'} correctamente.`);
-        
+        student.card.status = 'blocked';
+        alert('Tarjeta bloqueada correctamente.');
     } catch (error) {
         alert("Error cambiando estado: " + error.response?.data?.detail);
     }

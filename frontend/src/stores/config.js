@@ -14,8 +14,8 @@ export const useConfigStore = defineStore('config', {
     actions: {
         async fetchSettings() {
             try {
-                const { data } = await api.get('/settings/');
-                // Combinar con los valores por defecto
+                const { data } = await api.get('/settings/public');
+                // Solo claves públicas: nombre, logo, moneda y email de soporte.
                 this.settings = { ...this.settings, ...data };
 
                 // Cambiar el título de la pestaña del navegador dinámicamente

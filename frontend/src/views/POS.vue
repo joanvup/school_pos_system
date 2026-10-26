@@ -8,14 +8,23 @@
       <!-- CABECERA: Buscador compacto en móvil -->
       <div class="flex flex-col sm:flex-row justify-between items-center gap-2 px-2">
         <h2 class="hidden sm:block text-xl font-black text-gray-800 uppercase italic">Venta</h2>
-        <div class="relative w-full sm:w-64">
-            <span class="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
-            <input 
-                v-model="search" 
-                type="text" 
-                placeholder="Buscar..." 
-                class="w-full pl-9 pr-4 py-2 bg-white border-2 border-gray-100 rounded-xl shadow-sm outline-none focus:border-primary transition-all text-sm"
+        <div class="flex w-full sm:w-auto items-center gap-2">
+            <div class="relative flex-1 min-w-0 sm:w-64">
+                <span class="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
+                <input 
+                    v-model="search" 
+                    type="text" 
+                    placeholder="Buscar..." 
+                    class="w-full pl-9 pr-4 py-2 bg-white border-2 border-gray-100 rounded-xl shadow-sm outline-none focus:border-primary transition-all text-sm"
+                >
+            </div>
+            <button
+                @click="isSalesPanelOpen = true"
+                class="lg:hidden flex items-center gap-2 px-3 py-2 bg-white border-2 border-gray-100 rounded-xl shadow-sm text-[10px] font-black text-gray-600 uppercase tracking-widest active:scale-95"
             >
+                🧾 Ventas
+                <span v-if="recentSales.length" class="bg-primary text-white rounded-full px-2 py-0.5 text-[9px]">{{ recentSales.length }}</span>
+            </button>
         </div>
       </div>
 
@@ -75,9 +84,18 @@
         <div class="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
             <div v-for="sale in recentSales" :key="sale.id" class="flex justify-between items-center bg-white p-2 rounded-xl shadow-sm border border-gray-100 text-[10px]">
                 <span class="font-black text-gray-700 truncate w-32">{{ sale.comprador }}</span>
-                <span :class="sale.status === 'reversed' ? 'line-through text-red-300' : 'text-primary font-black'">
-                    {{ formatMoney(sale.amount) }}
-                </span>
+                <div class="flex items-center gap-2">
+                    <span :class="sale.status === 'reversed' ? 'line-through text-red-300' : 'text-primary font-black'">
+                        {{ formatMoney(sale.amount) }}
+                    </span>
+                    <button
+                        v-if="authStore.isAdmin && sale.status === 'completed'"
+                        @click="handleReverse(sale.id)"
+                        :disabled="reversingId === sale.id"
+                        class="w-6 h-6 rounded-full bg-red-50 text-red-600 font-black flex items-center justify-center hover:bg-red-100 disabled:opacity-40"
+                        title="Reversar venta"
+                    >↩</button>
+                </div>
             </div>
         </div>
       </div>
@@ -144,6 +162,42 @@
         </div>
     </div>
 
+    <!-- PANEL MÓVIL: Ventas del momento -->
+    <div v-if="isSalesPanelOpen" class="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[150]" @click.self="isSalesPanelOpen = false">
+        <div class="absolute bottom-0 inset-x-0 bg-white rounded-t-[32px] shadow-2xl max-h-[75vh] flex flex-col">
+            <div class="p-5 flex justify-between items-center border-b border-gray-100">
+                <div>
+                    <h3 class="text-sm font-black text-gray-800 uppercase italic">Ventas del momento</h3>
+                    <p class="text-[10px] font-bold text-gray-400 uppercase">Últimas 5 ventas</p>
+                </div>
+                <button @click="isSalesPanelOpen = false" class="w-9 h-9 rounded-full bg-gray-100 text-gray-500 font-black">✕</button>
+            </div>
+            <div class="flex-1 overflow-y-auto overscroll-contain p-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-2 custom-scrollbar">
+                <div v-for="sale in recentSales" :key="sale.id" class="flex justify-between items-center bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                    <div class="min-w-0">
+                        <p class="font-black text-gray-800 text-sm truncate">{{ sale.comprador }}</p>
+                        <p class="text-[9px] font-bold uppercase" :class="sale.status === 'reversed' ? 'text-red-400' : 'text-gray-400'">
+                            {{ sale.status === 'reversed' ? 'Reversada' : 'Completada' }}
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-3 shrink-0">
+                        <span :class="sale.status === 'reversed' ? 'line-through text-red-300' : 'text-primary font-black'">
+                            {{ formatMoney(sale.amount) }}
+                        </span>
+                        <button
+                            v-if="authStore.isAdmin && sale.status === 'completed'"
+                            @click="handleReverse(sale.id)"
+                            :disabled="reversingId === sale.id"
+                            class="w-9 h-9 rounded-full bg-red-50 text-red-600 font-black flex items-center justify-center hover:bg-red-100 disabled:opacity-40"
+                            title="Reversar venta"
+                        >↩</button>
+                    </div>
+                </div>
+                <p v-if="!recentSales.length" class="text-center text-gray-300 text-[10px] font-black uppercase tracking-widest py-8">Sin ventas todavía</p>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL DE COBRO (Igual que el anterior pero con z-index mayor) -->
     <div v-if="showModal" class="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center z-[200] p-4">
         <!-- ... (Contenido del modal de la respuesta anterior, se mantiene intacto) ... -->
@@ -206,7 +260,8 @@ const cart = ref([]);
 const search = ref('');
 const loading = ref(true);
 const activeCategory = ref('Todas');
-const isMobileCartOpen = ref(false); // <--- Control para móvil
+const isMobileCartOpen = ref(false);
+const isSalesPanelOpen = ref(false);
 
 // Modal States
 const showModal = ref(false);
@@ -217,6 +272,7 @@ const cardHolder = ref(null);
 const processing = ref(false);
 const errorMessage = ref('');
 const downloadingReader = ref(false);
+const reversingId = ref(null);
 
 const loadPOSData = async () => {
     loading.value = true;
@@ -344,11 +400,17 @@ const confirmPayment = async () => {
 };
 
 const handleReverse = async (id) => {
-    if(!confirm("¿Reversar venta?")) return;
+    if (!confirm("¿Reversar esta venta? Se devolverá el saldo y el stock.")) return;
+    reversingId.value = id;
     try {
         await api.post(`/sales/reverse/${id}`);
-        loadPOSData();
-    } catch (e) { alert(e.response?.data?.detail); }
+        await loadPOSData();
+        alert("✅ Venta reversada");
+    } catch (e) {
+        alert(e.response?.data?.detail || "No se pudo reversar la venta");
+    } finally {
+        reversingId.value = null;
+    }
 };
 
 onMounted(loadPOSData);

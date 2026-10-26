@@ -18,10 +18,14 @@ import MyCard from '../views/MyCard.vue';
 import Reports from '../views/Reports.vue';
 import Settings from '../views/Settings.vue';
 import ResetPassword from '../views/ResetPassword.vue';
+import ChangePassword from '../views/ChangePassword.vue';
 import PaymentResult from '../views/PaymentResult.vue';
 import BalanceAudit from '../views/BalanceAudit.vue';
 import PaymentGateways from '../views/PaymentGateways.vue';
 
+const ADMIN = ['admin'];
+const ADMIN_SUPERVISOR = ['admin', 'supervisor'];
+const STAFF = ['admin', 'supervisor', 'vendedor'];
 
 const routes = [
     {
@@ -39,21 +43,22 @@ const routes = [
         component: MainLayout,
         meta: { requiresAuth: true },
         children: [
-            { path: '', redirect: '/dashboard' }, // Redirección por defecto
-            { path: 'dashboard', component: Dashboard },
-            { path: 'pos', component: POS },
-            { path: 'inventory', component: Inventory },
-            { path: 'students', component: Students },
-            { path: 'users', component: Users },
-            { path: 'bulk-import', component: BulkImport },
-            { path: 'my-family', component: MyFamily },
+            { path: '', redirect: '/dashboard' }, // La guarda redirige según el rol
+            { path: 'dashboard', component: Dashboard, meta: { roles: ADMIN_SUPERVISOR } },
+            { path: 'pos', component: POS, meta: { roles: STAFF } },
+            { path: 'inventory', component: Inventory, meta: { roles: ADMIN_SUPERVISOR } },
+            { path: 'students', component: Students, meta: { roles: ADMIN } },
+            { path: 'users', component: Users, meta: { roles: ADMIN } },
+            { path: 'bulk-import', component: BulkImport, meta: { roles: ADMIN } },
+            { path: 'my-family', component: MyFamily, meta: { roles: ['padre'] } },
             { path: 'profile', component: Profile },
-            { path: 'my-card', component: MyCard },
-            { path: 'reports', component: Reports },
-            { path: 'settings', component: Settings },
+            { path: 'change-password', component: ChangePassword },
+            { path: 'my-card', component: MyCard, meta: { roles: ['empleado'] } },
+            { path: 'reports', component: Reports, meta: { roles: ADMIN_SUPERVISOR } },
+            { path: 'settings', component: Settings, meta: { roles: ADMIN } },
             { path: 'payment-result', component: PaymentResult },
-            { path: 'balance-audit', component: BalanceAudit },
-            { path: 'admin/payments', component: PaymentGateways },
+            { path: 'balance-audit', component: BalanceAudit, meta: { roles: ADMIN } },
+            { path: 'admin/payments', component: PaymentGateways, meta: { roles: ADMIN } },
         ]
     }
 ];
@@ -63,23 +68,31 @@ const router = createRouter({
     routes,
 });
 
-router.beforeEach(async (to, from, next) => {
+router.beforeEach(async (to) => {
     const authStore = useAuthStore();
 
+    // Revalida la sesión (cookie HttpOnly) antes de decidir.
+    await authStore.initialize();
+
+    if (authStore.isAuthenticated && authStore.mustChangePassword) {
+        if (to.path === '/change-password') return true;
+        return '/change-password';
+    }
+
     if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-        return next('/login');
+        return { path: '/login', query: { redirect: to.fullPath } };
     }
 
-    // SI EL USUARIO VA A LA RAÍZ "/", REDIRIGIR SEGÚN ROL
-    if (to.path === '/' && authStore.isAuthenticated) {
-        const role = authStore.user?.role;
-        if (role === 'padre') return next('/my-family');
-        if (role === 'empleado') return next('/my-card');
-        if (role === 'vendedor') return next('/pos');
-        return next('/dashboard'); // Admin y Supervisor
+    if (to.meta.guest && authStore.isAuthenticated) {
+        return authStore.homePath;
     }
 
-    next();
+    const roles = to.meta.roles;
+    if (roles && !roles.includes(authStore.user?.role)) {
+        return authStore.homePath;
+    }
+
+    return true;
 });
 
 export default router;

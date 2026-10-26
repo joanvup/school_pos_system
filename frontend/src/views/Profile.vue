@@ -17,43 +17,78 @@
     <h2 class="text-lg font-bold mb-4">Cambiar Contraseña</h2>
     <form @submit.prevent="changePassword" class="space-y-4">
         <div>
+            <label class="text-sm">Contraseña actual</label>
+            <input v-model="currentPassword" type="password" required autocomplete="current-password"
+                   class="w-full border p-2 rounded">
+        </div>
+        <div>
             <label class="text-sm">Nueva Contraseña</label>
-            <input v-model="pass1" type="password" required class="w-full border p-2 rounded">
+            <input v-model="pass1" type="password" required autocomplete="new-password"
+                   class="w-full border p-2 rounded">
         </div>
         <div>
             <label class="text-sm">Confirmar Contraseña</label>
-            <input v-model="pass2" type="password" required class="w-full border p-2 rounded">
+            <input v-model="pass2" type="password" required autocomplete="new-password"
+                   class="w-full border p-2 rounded">
         </div>
-        <button type="submit" class="w-full bg-gray-800 text-white py-2 rounded hover:bg-black">Actualizar</button>
+
+        <p class="text-xs text-gray-400">Mínimo 10 caracteres, con letras y números.</p>
+
+        <div v-if="error" class="bg-red-50 text-red-600 p-3 rounded text-sm font-bold">
+            {{ error }}
+        </div>
+
+        <button type="submit" :disabled="loading"
+                class="w-full bg-gray-800 text-white py-2 rounded hover:bg-black disabled:opacity-50">
+            {{ loading ? 'Actualizando...' : 'Actualizar' }}
+        </button>
     </form>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import api from '../api/axios';
 
 const authStore = useAuthStore();
+const router = useRouter();
+const currentPassword = ref('');
 const pass1 = ref('');
 const pass2 = ref('');
+const loading = ref(false);
+const error = ref('');
+
+const validate = () => {
+    if (pass1.value !== pass2.value) return 'Las contraseñas no coinciden';
+    if (pass1.value === currentPassword.value) {
+        return 'La nueva contraseña debe ser diferente a la actual';
+    }
+    if (pass1.value.length < 10) return 'La contraseña debe tener al menos 10 caracteres';
+    if (!/[A-Za-z]/.test(pass1.value) || !/\d/.test(pass1.value)) {
+        return 'La contraseña debe incluir letras y números';
+    }
+    return '';
+};
 
 const changePassword = async () => {
-    if(pass1.value !== pass2.value) return alert("Las contraseñas no coinciden");
-    
+    error.value = validate();
+    if (error.value) return;
+
+    loading.value = true;
     try {
-        // Usamos el endpoint de update user (PUT /users/{id})
-        // Nota: Un usuario normal solo debería poder editarse a si mismo.
-        // Si el endpoint pide ser Admin, habría que crear uno nuevo /users/me en backend.
-        // Por simplicidad, asumiremos que creamos /users/me o que el endpoint permite editarse a uno mismo.
-        
-        // FIX RÁPIDO: Crear endpoint /users/me en backend para editarse uno mismo, 
-        // o usar el ID del store si el backend lo permite.
-        await api.put(`/users/${authStore.user.id}`, { password: pass1.value });
-        alert("Contraseña cambiada. Vuelve a iniciar sesión.");
-        authStore.logout();
-    } catch (error) {
-        alert("Error actualizando contraseña");
+        await api.post('/auth/change-password', {
+            current_password: currentPassword.value,
+            new_password: pass1.value,
+        });
+        authStore.clearSession();
+        alert('Contraseña cambiada. Inicie sesión nuevamente.');
+        await router.push('/login');
+    } catch (err) {
+        error.value = err.response?.data?.detail || 'Error actualizando contraseña';
+    } finally {
+        loading.value = false;
     }
 };
 </script>

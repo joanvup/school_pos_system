@@ -2,27 +2,57 @@ import { defineStore } from 'pinia';
 import api from '../api/axios';
 import router from '../router';
 
+// Evita que varias guardas simultáneas disparen /users/me en paralelo.
+let initPromise = null;
+
 export const useAuthStore = defineStore('auth', {
     state: () => ({
-        token: localStorage.getItem('token') || null,
-        user: JSON.parse(localStorage.getItem('user')) || null, // Persistir usuario al recargar F5
+        user: null,
+        initialized: false,
         loading: false,
-        error: null
+        error: null,
     }),
 
     getters: {
-        isAuthenticated: (state) => !!state.token,
+        isAuthenticated: (state) => !!state.user,
         currentUser: (state) => state.user,
-        // Helpers rápidos de roles
+        mustChangePassword: (state) => !!state.user?.must_change_password,
         isAdmin: (state) => state.user?.role === 'admin',
         isSupervisor: (state) => state.user?.role === 'supervisor',
         isSeller: (state) => state.user?.role === 'vendedor',
         isParent: (state) => state.user?.role === 'padre',
         isEmployee: (state) => state.user?.role === 'empleado',
+        homePath: (state) => {
+            const role = state.user?.role;
+            if (role === 'padre') return '/my-family';
+            if (role === 'empleado') return '/my-card';
+            if (role === 'vendedor') return '/pos';
+            return '/dashboard';
+        },
     },
 
     actions: {
-        // 1. Iniciar Sesión
+        // Revalida la cookie de sesión contra el backend. Se llama desde el router.
+        async initialize() {
+            if (this.initialized) return;
+            if (!initPromise) {
+                initPromise = (async () => {
+                    try {
+                        const { data } = await api.get('/users/me', {
+                            skipAuthRedirect: true,
+                        });
+                        this.user = data;
+                    } catch {
+                        this.user = null;
+                    } finally {
+                        this.initialized = true;
+                        initPromise = null;
+                    }
+                })();
+            }
+            return initPromise;
+        },
+
         async login(email, password) {
             this.loading = true;
             this.error = null;
@@ -33,47 +63,44 @@ export const useAuthStore = defineStore('auth', {
             params.append('password', password);
 
             try {
-                // Paso A: Obtener Token
-                const { data } = await api.post('/auth/login/access-token', params, {
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+                await api.post('/auth/login/access-token', params, {
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 });
-
-                this.token = data.access_token;
-                localStorage.setItem('token', this.token);
-
-                // Paso B: Obtener datos del usuario (Rol, Nombre)
                 await this.fetchUserProfile();
-
+                this.initialized = true;
                 return true;
             } catch (err) {
-                console.error("Error Login:", err);
-                this.error = err.response?.data?.detail || "Credenciales incorrectas";
+                this.error = err.response?.data?.detail || 'Credenciales incorrectas';
                 throw err;
             } finally {
                 this.loading = false;
             }
         },
 
-        // 2. Obtener datos del usuario actual (Quién soy)
         async fetchUserProfile() {
-            try {
-                // NOTA: Requiere que exista el endpoint GET /users/me en el backend
-                const { data } = await api.get('/users/me');
-                this.user = data;
-                localStorage.setItem('user', JSON.stringify(data));
-            } catch (error) {
-                console.error("Error obteniendo perfil:", error);
-                this.logout(); // Si falla el perfil, el token no sirve
-            }
+            const { data } = await api.get('/users/me', {
+                skipAuthRedirect: true,
+            });
+            this.user = data;
+            return data;
         },
 
-        // 3. Cerrar Sesión
-        logout() {
-            this.token = null;
+        clearSession() {
             this.user = null;
+            this.initialized = true;
+            // Limpia tokens de versiones anteriores que quedaron en localStorage.
             localStorage.removeItem('token');
             localStorage.removeItem('user');
-            router.push('/login');
-        }
-    }
+        },
+
+        async logout() {
+            try {
+                await api.post('/auth/logout', null, { skipAuthRedirect: true });
+            } catch {
+                // Si el backend no responde, igual limpiamos el estado local.
+            }
+            this.clearSession();
+            await router.push('/login');
+        },
+    },
 });

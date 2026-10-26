@@ -52,6 +52,10 @@
                 <p class="text-slate-400 font-bold text-xs uppercase tracking-[0.2em]">Panel de Control Unificado</p>
             </div>
 
+            <div v-if="notice" class="bg-emerald-50 text-emerald-700 p-4 rounded-2xl text-[11px] font-black uppercase border border-emerald-100">
+                {{ notice }}
+            </div>
+
             <!-- Formulario Principal -->
             <form @submit.prevent="handleLogin" class="space-y-8">
                 <div class="space-y-5">
@@ -117,6 +121,10 @@
                 
                 <input v-model="recoverEmail" type="email" placeholder="email@colegio.edu.co" 
                        class="w-full p-5 bg-slate-100 border-2 border-slate-100 rounded-3xl mb-4 outline-none focus:border-primary font-bold text-center">
+
+                <p v-if="recoverMessage" class="text-emerald-600 text-sm font-bold mb-4 px-2">
+                    {{ recoverMessage }}
+                </p>
                 
                 <div class="flex flex-col gap-3">
                     <button @click="handleRecover" :disabled="loadingRecover"
@@ -136,52 +144,56 @@
 import { ref } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import { useConfigStore } from '../stores/config';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../api/axios';
 
 const authStore = useAuthStore();
 const configStore = useConfigStore();
+const route = useRoute();
 const router = useRouter();
 
 const email = ref('');
 const password = ref('');
 const loading = ref(false);
 const errorMessage = ref('');
+const notice = ref(
+  route.query.changed ? 'Contraseña actualizada. Inicie sesión nuevamente.' : ''
+);
 
 // Recuperación
 const showRecoverModal = ref(false);
 const recoverEmail = ref('');
+const recoverMessage = ref('');
 const loadingRecover = ref(false);
 
 const handleLogin = async () => {
   loading.value = true;
   errorMessage.value = '';
+  notice.value = '';
   try {
     await authStore.login(email.value, password.value);
-    
-    // Redirección inteligente por Rol
-    const role = authStore.user?.role;
-    if (role === 'padre') router.push('/my-family');
-    else if (role === 'empleado') router.push('/my-card');
-    else if (role === 'vendedor') router.push('/pos');
-    else router.push('/dashboard');
-    
+
+    if (authStore.user?.must_change_password) {
+      router.push('/change-password');
+      return;
+    }
+    router.push(authStore.homePath);
   } catch (error) {
-    errorMessage.value = 'Error de identificación. Verifique datos.';
+    errorMessage.value = error.response?.data?.detail || 'Error de identificación. Verifique datos.';
   } finally {
     loading.value = false;
   }
 };
 
 const handleRecover = async () => {
-    if(!recoverEmail.value) return;
+    if (!recoverEmail.value) return;
     loadingRecover.value = true;
+    recoverMessage.value = '';
     try {
-        await api.post(`/auth/password-recovery/${recoverEmail.value}`);
-        alert("¡Listo! Revisa tu bandeja de entrada.");
-        showRecoverModal.value = false;
+        const { data } = await api.post('/auth/password-recovery', { email: recoverEmail.value });
+        recoverMessage.value = data.message;
     } catch (e) {
-        alert("Error al procesar. Intenta más tarde.");
+        recoverMessage.value = 'No se pudo procesar la solicitud. Intente más tarde.';
     } finally {
         loadingRecover.value = false;
     }

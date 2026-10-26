@@ -30,9 +30,7 @@
                     <span class="opacity-75 text-xs uppercase">Cupo Diario:</span>
                     <span class="font-bold ml-2">${{ (myCard.daily_limit || 0).toLocaleString() }}</span>
                 </div>
-                <button @click="openLimitModal" class="text-xs bg-white text-gray-800 px-2 py-1 rounded font-bold hover:bg-gray-200">
-                    Cambiar
-                </button>
+                <span class="text-[10px] uppercase opacity-75">Definido por el colegio</span>
             </div>
             <div class="mt-6 flex justify-between items-end">
                 <div class="font-mono bg-white/20 px-3 py-1 rounded text-sm tracking-widest">
@@ -50,11 +48,15 @@
                 </div>
 
                 <button 
+                    v-if="myCard.status === 'active'"
                     @click="toggleMyCardStatus"
                     class="text-xs font-bold px-3 py-1 rounded transition bg-white/20 hover:bg-white/30 text-white"
                 >
-                    {{ myCard.status === 'active' ? 'BLOQUEAR' : 'DESBLOQUEAR' }}
+                    BLOQUEAR
                 </button>
+                <span v-else class="text-[10px] uppercase opacity-75">
+                    Pide al administrador que la desbloquee
+                </span>
             </div>
         </div>
         
@@ -72,21 +74,6 @@
             >
                 <span>📄</span> Ver Movimientos
             </button>
-        </div>
-    </div>
-
-    <!-- MODAL RECARGA -->
-    <div v-if="showRechargeModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div class="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 text-center">
-            <h3 class="text-lg font-bold mb-4">Recargar Mi Saldo</h3>
-            <div class="mb-4 text-left">
-                <label class="text-sm font-bold text-gray-700">Monto a Recargar</label>
-                <input v-model.number="amount" type="number" step="5000" min="5000" class="w-full border p-2 rounded mt-1 font-bold text-lg">
-            </div>
-            <button @click="processRecharge" class="w-full bg-blue-600 text-white py-3 rounded font-bold hover:bg-blue-700">
-                Pagar vía PSE
-            </button>
-            <button @click="showRechargeModal = false" class="mt-4 text-sm text-gray-500 underline">Cancelar</button>
         </div>
     </div>
 
@@ -160,19 +147,6 @@
             </div>
         </div>
     </div>
-    <!-- MODAL CAMBIAR CUPO -->
-    <div v-if="showLimitModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div class="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 text-center">
-            <h3 class="text-lg font-bold mb-4">Mi Límite Diario</h3>
-            <input 
-                v-model.number="tempLimit" 
-                type="number" 
-                class="w-full border-2 border-blue-500 rounded p-2 text-lg font-bold mb-4"
-            >
-            <button @click="saveLimit" class="w-full bg-blue-600 text-white py-2 rounded font-bold">Guardar</button>
-            <button @click="showLimitModal = false" class="mt-4 text-gray-500 underline text-sm">Cancelar</button>
-        </div>
-    </div>
     <!-- MODAL PAYMENT (PASARELA ACTIVA) -->
     <PaymentModal
         v-if="myCard"
@@ -207,10 +181,6 @@ const authStore = useAuthStore();
 const myCard = ref(null);
 const loading = ref(true);
 
-// Recarga
-const showRechargeModal = ref(false);
-const amount = ref(50000);
-
 // Historial
 const showHistoryModal = ref(false);
 const history = ref([]);
@@ -219,28 +189,7 @@ const limit = 20;
 const hasMore = ref(true);
 // Variable para controlar qué fila muestra detalles
 const expandedRowId = ref(null);
-// Variables
-const showLimitModal = ref(false);
-const tempLimit = ref(0);
 
-// Funciones
-const openLimitModal = () => {
-    tempLimit.value = myCard.value.daily_limit || 0;
-    showLimitModal.value = true;
-};
-
-const saveLimit = async () => {
-    try {
-        await api.put(`/cards/${myCard.value.uid}`, {
-            daily_limit: tempLimit.value
-        });
-        myCard.value.daily_limit = tempLimit.value;
-        showLimitModal.value = false;
-        alert("Tu cupo diario ha sido actualizado.");
-    } catch (error) {
-        alert("Error: " + error.response?.data?.detail);
-    }
-};
 const toggleDetails = (txId) => {
     if (expandedRowId.value === txId) {
         expandedRowId.value = null; // Cerrar si ya estaba abierto
@@ -260,25 +209,6 @@ const loadCard = async () => {
         console.error(e);
     } finally {
         loading.value = false;
-    }
-};
-
-/*const openRecharge = () => {
-    amount.value = 50000;
-    showRechargeModal.value = true;
-}; */
-
-const processRecharge = async () => {
-    try {
-        await api.post('/recharges/simulate-pse', {
-            card_uid: myCard.value.uid,
-            amount: amount.value
-        });
-        alert("¡Recarga exitosa!");
-        showRechargeModal.value = false;
-        loadCard(); // Actualizar saldo visual
-    } catch (error) {
-        alert("Error: " + error.response?.data?.detail);
     }
 };
 
@@ -303,13 +233,12 @@ const loadHistory = async () => {
 };
 
 const toggleMyCardStatus = async () => {
-    const newStatus = myCard.value.status === 'active' ? 'blocked' : 'active';
-    
-    if(!confirm(`¿Deseas ${newStatus === 'blocked' ? 'BLOQUEAR' : 'ACTIVAR'} tu tarjeta?`)) return;
+    if (myCard.value.status !== 'active') return;
+    if (!confirm('¿Deseas BLOQUEAR tu tarjeta?')) return;
 
     try {
-        await api.put(`/cards/${myCard.value.uid}`, { status: newStatus });
-        myCard.value.status = newStatus; // Actualizar local
+        await api.put(`/cards/${myCard.value.uid}`, { status: 'blocked' });
+        myCard.value.status = 'blocked';
     } catch (error) {
         alert("Error: " + error.response?.data?.detail);
     }
