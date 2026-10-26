@@ -1,7 +1,8 @@
 import uuid
-from fastapi import APIRouter, UploadFile, File, Depends, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, Depends, BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
 from app.api import deps
+from app.core.config import settings
 from app.db.session import SessionLocal
 from app.utils.excel_handler import (
     process_students_file,
@@ -12,6 +13,20 @@ from app.utils.excel_handler import (
 
 router = APIRouter()
 import_progress = {}
+
+MAX_IMPORT_BYTES = settings.MAX_IMPORT_BYTES
+
+
+async def _read_import_file(file: UploadFile) -> bytes:
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="El archivo debe ser .xlsx")
+
+    contents = await file.read(MAX_IMPORT_BYTES + 1)
+    if len(contents) > MAX_IMPORT_BYTES:
+        raise HTTPException(status_code=413, detail="El archivo supera el tamaño máximo")
+    if not contents:
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
+    return contents
 
 @router.get("/template/students")
 def download_students_template(
@@ -36,7 +51,10 @@ def download_employees_template(
     )
 
 @router.get("/status/{task_id}")
-async def get_import_status(task_id: str):
+async def get_import_status(
+    task_id: str,
+    current_user = Depends(deps.get_current_active_admin),
+):
     # Devolver 0 si no existe para evitar errores en el front
     return import_progress.get(task_id, {"progress": 0, "status": "processing"})
 
@@ -46,10 +64,10 @@ async def import_students_excel(
     file: UploadFile = File(...), # 'file' debe coincidir con formData.append('file', ...)
     current_user = Depends(deps.get_current_active_admin)
 ):
+    contents = await _read_import_file(file)
+
     task_id = str(uuid.uuid4())
     import_progress[task_id] = {"progress": 0, "status": "processing", "result": None}
-    
-    contents = await file.read()
     
     # Lanzar tarea en segundo plano
     background_tasks.add_task(run_async_import, task_id, contents, "students")
@@ -62,10 +80,11 @@ async def import_employees_excel(
     file: UploadFile = File(...),
     current_user = Depends(deps.get_current_active_admin)
 ):
+    contents = await _read_import_file(file)
+
     task_id = str(uuid.uuid4())
     import_progress[task_id] = {"progress": 0, "status": "processing", "result": None}
     
-    contents = await file.read()
     background_tasks.add_task(run_async_import, task_id, contents, "employees")
     
     return {"task_id": task_id}

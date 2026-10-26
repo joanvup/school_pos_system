@@ -2,10 +2,10 @@ from sqlalchemy.orm import Session
 
 from app.models.payment_gateway_settings import PaymentGatewaySetting
 
+SUPPORTED_GATEWAYS = {"payu"}
+
 DEFAULT_PROVIDERS = [
     {"gateway": "payu", "label": "PayU PSE", "is_active": True, "is_test": True},
-    {"gateway": "wompi", "label": "Wompi", "is_active": False, "is_test": True},
-    {"gateway": "mercadopago", "label": "Mercado Pago", "is_active": False, "is_test": True},
 ]
 
 
@@ -28,12 +28,22 @@ def _dedupe_gateways(db: Session):
 
 def list_providers(db: Session):
     _dedupe_gateways(db)
-    rows = db.query(PaymentGatewaySetting).order_by(PaymentGatewaySetting.id).all()
+    rows = (
+        db.query(PaymentGatewaySetting)
+        .filter(PaymentGatewaySetting.gateway.in_(SUPPORTED_GATEWAYS))
+        .order_by(PaymentGatewaySetting.id)
+        .all()
+    )
     if rows:
         return rows
     # Respaldo: si la tabla está vacía (seed no corrió), sembramos y devolvemos.
     seed_gateway_settings(db)
-    return db.query(PaymentGatewaySetting).order_by(PaymentGatewaySetting.id).all()
+    return (
+        db.query(PaymentGatewaySetting)
+        .filter(PaymentGatewaySetting.gateway.in_(SUPPORTED_GATEWAYS))
+        .order_by(PaymentGatewaySetting.id)
+        .all()
+    )
 
 
 def seed_gateway_settings(db: Session):
@@ -50,7 +60,10 @@ def seed_gateway_settings(db: Session):
 
     active = (
         db.query(PaymentGatewaySetting)
-        .filter(PaymentGatewaySetting.is_active.is_(True))
+        .filter(
+            PaymentGatewaySetting.is_active.is_(True),
+            PaymentGatewaySetting.gateway.in_(SUPPORTED_GATEWAYS),
+        )
         .first()
     )
     if not active:
@@ -65,6 +78,8 @@ def seed_gateway_settings(db: Session):
 
 
 def set_active_provider(db: Session, gateway: str) -> PaymentGatewaySetting:
+    if gateway not in SUPPORTED_GATEWAYS:
+        return None
     row = (
         db.query(PaymentGatewaySetting)
         .filter(PaymentGatewaySetting.gateway == gateway)

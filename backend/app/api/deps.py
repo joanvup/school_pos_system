@@ -1,59 +1,95 @@
-from typing import Generator, Optional
-from fastapi import Depends, HTTPException, status
+from typing import Optional
+
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import jwt, JWTError
 from sqlalchemy.orm import Session
-from app.db.session import get_db
-from app.models.user import User, UserRole
-from app.schemas.token import TokenPayload
+
 from app.core import security
 from app.core.config import settings
 from app.crud import crud_user
+from app.db.session import get_db
+from app.models.user import User, UserRole
 
-# OAuth2PasswordBearer le dice a Swagger UI dónde obtener el token
+# OAuth2PasswordBearer le dice a Swagger UI dónde obtener el token.
+# auto_error=False permite usar también la cookie HttpOnly del navegador.
 reusable_oauth2 = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.API_V1_STR}/auth/login/access-token"
+    tokenUrl=f"{settings.API_V1_STR}/auth/login/access-token",
+    auto_error=False,
 )
 
-# 1. Obtener el usuario actual basado en el token
+# Rutas que un usuario con cambio de contraseña pendiente sí puede usar.
+_PASSWORD_CHANGE_ALLOWED_PATHS = {
+    f"{settings.API_V1_STR}/users/me",
+    f"{settings.API_V1_STR}/auth/change-password",
+    f"{settings.API_V1_STR}/auth/logout",
+    f"{settings.API_V1_STR}/auth/logout-all",
+}
+
+
+def _unauthorized(detail: str = "No se pudo validar las credenciales") -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 def get_current_user(
+    request: Request,
     db: Session = Depends(get_db),
-    token: str = Depends(reusable_oauth2)
+    token: Optional[str] = Depends(reusable_oauth2),
 ) -> User:
+    raw_token = token or request.cookies.get(settings.AUTH_COOKIE_NAME)
+    if not raw_token:
+        raise _unauthorized()
+
     try:
-        payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[security.ALGORITHM]
-        )
-        token_data = TokenPayload(**payload)
-    except (JWTError, KeyError):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No se pudo validar las credenciales",
-        )
-    
-    user = crud_user.get_user_by_email(db, email=token_data.sub)
+        payload = security.decode_access_token(raw_token)
+        user_id = int(payload.get("sub"))
+    except (security.InvalidTokenError, TypeError, ValueError):
+        raise _unauthorized("Sesión inválida o expirada")
+
+    user = crud_user.get_user_by_id(db, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        raise _unauthorized("Sesión inválida o expirada")
+
+    # Un cambio de contraseña, desactivación o "cerrar todas las sesiones"
+    # incrementa token_version e invalida los tokens anteriores.
+    if int(payload.get("ver", 0)) != int(user.token_version or 0):
+        raise _unauthorized("Sesión expirada. Inicie sesión nuevamente.")
+
     return user
 
-# 2. Verificar que el usuario esté activo
+
 def get_current_active_user(
+    request: Request,
     current_user: User = Depends(get_current_user),
 ) -> User:
     if not current_user.is_active:
-        raise HTTPException(status_code=400, detail="Usuario inactivo")
+        raise HTTPException(status_code=403, detail="Usuario inactivo")
+
+    if (
+        current_user.must_change_password
+        and request.url.path not in _PASSWORD_CHANGE_ALLOWED_PATHS
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Debe cambiar la contraseña antes de continuar",
+        )
+
     return current_user
+
 
 def get_current_active_staff(
     current_user: User = Depends(get_current_active_user),
 ) -> User:
     if current_user.role not in [UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.VENDEDOR]:
         raise HTTPException(
-            status_code=403, detail="Solo el personal autorizado puede descargar el lector NFC"
+            status_code=403, detail="Solo el personal autorizado puede realizar esta acción"
         )
     return current_user
 
-# 3. Verificar que sea ADMIN (Ejemplo de Rol)
+
 def get_current_active_admin(
     current_user: User = Depends(get_current_active_user),
 ) -> User:
@@ -63,11 +99,13 @@ def get_current_active_admin(
         )
     return current_user
 
+
 def get_current_admin_or_supervisor(
     current_user: User = Depends(get_current_active_user),
 ) -> User:
     if current_user.role not in [UserRole.ADMIN, UserRole.SUPERVISOR]:
         raise HTTPException(
-            status_code=403, detail="El usuario no tiene suficientes permisos (Se requiere Admin o Supervisor)"
+            status_code=403,
+            detail="El usuario no tiene suficientes permisos (Se requiere Admin o Supervisor)",
         )
     return current_user

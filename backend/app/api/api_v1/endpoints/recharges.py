@@ -1,223 +1,81 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.orm import Session, joinedload
-from app.db.session import get_db
-from app.schemas.recharge import RechargeCreate, RechargeResponse
-from app.crud import crud_transaction, crud_card
+from sqlalchemy.orm import Session
+
 from app.api import deps
-from app.models.user import User, UserRole
+from app.api.api_v1.endpoints.payments import handle_payu_notification_request
+from app.crud import crud_payment_gateway
+from app.db.session import get_db
+from app.models.user import User
+from app.payment_providers.registry import get_active_provider
+from app.services.payment_service import (
+    get_payment_status,
+    require_rechargeable_card,
+    start_payu_payment,
+)
 from app.utils.payu_service import PayUService
-from app.models.card import Card, Transaction, TransactionType
-from app.core.config import settings
 
 router = APIRouter()
 
+
 @router.get("/banks")
 def get_pse_banks(current_user: User = Depends(deps.get_current_active_user)):
-    """Retorna la lista de bancos de PayU"""
+    """Retorna la lista de bancos de PayU."""
     banks = PayUService.get_banks()
-    # Si por alguna razón la lista llega vacía, enviamos un error claro
     if not banks:
         raise HTTPException(
-            status_code=503, 
-            detail="No se pudo obtener la lista de bancos desde PayU. Verifique su conexión a internet o credenciales."
+            status_code=503,
+            detail="No se pudo obtener la lista de bancos desde PayU.",
         )
     return banks
 
+
 @router.post("/init-payu-pse")
 def init_recharge(
-    request: Request, # Recibir el objeto request
+    request: Request,
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user)
+    current_user: User = Depends(deps.get_current_active_user),
 ):
-    
-    # --- 1. DETECTAR URL DINÁMICA ---
-    # Usamos x-forwarded-proto para detectar si es HTTPS detrás de Nginx
-    scheme = request.headers.get("x-forwarded-proto", "https")
-    host = request.headers.get("host")
-    base_url = f"{scheme}://{host}"
-    print(base_url)
-    
-    client_ip = request.headers.get("X-Real-IP") or request.client.host
-    user_agent = request.headers.get("User-Agent") or "Unknown"
+    """Alias legacy de /payments/init. Se retira tras actualizar el frontend."""
+    crud_payment_gateway.seed_gateway_settings(db)
+    get_active_provider(db)
 
-    # --- 2. VALIDAR TARJETA ---
-    card = db.query(Card).filter(Card.uid == payload['card_uid']).first()
-    if not card: raise HTTPException(status_code=404, detail="Tarjeta no existe")
+    card_uid = str(payload.get("card_uid") or "").strip()
+    if not card_uid:
+        raise HTTPException(status_code=400, detail="card_uid es obligatorio")
 
-    # --- 3. LLAMAR A PAYU ---
-    # Usamos el nombre del usuario logueado pero el email que viene del payload (editable)
-    payload['buyer_name'] = current_user.full_name
-    
-    # El servicio PayU recibirá el email del payload, no forzado del user
-    res, reference = PayUService.init_pse_payment(payload, client_ip, user_agent, base_url)
+    card = require_rechargeable_card(db, card_uid, current_user)
 
-    tx_res = res.get("transactionResponse", {})
-    state = tx_res.get("state")
-    # LÓGICA DE VALIDACIÓN ROBUSTA
-    if state == "PENDING" and "extraParameters" in tx_res and "BANK_URL" in tx_res["extraParameters"]:
-        # EXTRAEMOS EL CUS (Trazability Code en PayU)
-        cus = tx_res.get("trazabilityCode")
-        # --- EL PAGO FUE ACEPTADO PARA REDIRECCIÓN ---
-        new_tx = Transaction(
-            card_id=card.id,
-            amount=payload['amount'],
-            type=TransactionType.RECHARGE,
-            description=f"Recarga PSE en proceso ({reference})",
-            reference_code=reference,
-            cus=cus,
-            status="pending"
-        )
-        db.add(new_tx)
-        db.commit()
+    result = start_payu_payment(
+        db=db,
+        card=card,
+        amount=payload.get("amount"),
+        buyer={
+            **payload,
+            "buyer_name": current_user.full_name,
+            "buyer_email": payload.get("buyer_email") or current_user.email,
+        },
+        client_ip=request.headers.get("X-Real-IP")
+        or (request.client.host if request.client else "0.0.0.0"),
+        user_agent=request.headers.get("User-Agent") or "Unknown",
+    )
 
-        return {
-            "redirect_url": tx_res["extraParameters"]["BANK_URL"],
-            "reference": reference
-        }
-    
-    else:
-        # --- EL PAGO FUE RECHAZADO O HUBO ERROR ---
-        response_code = tx_res.get("responseCode", "UNKNOWN_ERROR")
-        print(response_code)
-        # Mapeo de errores comunes de PayU para el usuario
-        error_msg = {
-            "BANK_UNREACHABLE": "El simulador del banco no está disponible. Por favor selecciona 'BANCO UNION COLOMBIANO'.",
-            "PAYMENT_NETWORK_BAD_RESPONSE": "Error de comunicación con la red de pagos.",
-            "INVALID_SIGNATURE": "Error de seguridad en la firma de la transacción.",
-            "EXCEEDED_AMOUNT": "El monto supera el límite permitido."
-        }.get(response_code, f"Error en la transacción: {response_code}")
+    return {
+        "redirect_url": result.redirect_url,
+        "reference": result.reference,
+    }
 
-        raise HTTPException(status_code=400, detail=error_msg)
 
 @router.post("/payu-confirmation")
 async def payu_confirmation(request: Request, db: Session = Depends(get_db)):
-    # 1. Capturar todo lo que llega (crudo y parseado)
-    try:
-        raw = await request.body()
-        raw_text = (raw or b"").decode("utf-8", errors="replace")
-        raw_body = await request.form()
-        form_data = dict(raw_body)
-        print(f"--- WEBHOOK INCOMING ---")
-        print(f"Payload: {form_data}")
-    except Exception as e:
-        print(f"ERROR: No se pudo leer el form de PayU: {e}")
-        return {"message": "Invalid form"}
+    """Alias legacy del webhook. Retirar después de actualizar PayU."""
+    return await handle_payu_notification_request(request, db)
 
-    # 2. Extraer datos con los nombres exactos de PayU
-    merchant_id = form_data.get("merchant_id")
-    reference = form_data.get("reference_sale")
-    value = form_data.get("value")
-    currency = form_data.get("currency")
-    state = form_data.get("state_pol") # 4=Aprobado, 6=Rechazado
-    incoming_sign = form_data.get("sign")
-    cus = form_data.get("cus")
-    response_code = form_data.get("response_code_pol")
-
-    # 3. HARDENING: validar que la notificación viene de NUESTRA cuenta PayU
-    if str(merchant_id) != str(settings.PAYU_MERCHANT_ID):
-        print(f"WEBHOOK REJECT: merchant_id {merchant_id} != {settings.PAYU_MERCHANT_ID}")
-        return {"message": "Invalid Merchant"}
-
-    # 4. Validar Firma
-    if not PayUService.verify_confirmation_signature(merchant_id, reference, value, currency, state, incoming_sign):
-        print(f"WEBHOOK ERROR: Firma inválida para ref {reference}")
-        return {"message": "Invalid Signature"}
-
-    # 5. Procesar en Base de Datos
-    tx = db.query(Transaction).options(joinedload(Transaction.card))\
-           .filter(Transaction.reference_code == reference).first()
-           
-    if not tx:
-        print(f"WEBHOOK ERROR: Referencia {reference} no existe en DB local")
-        return {"message": "TX Not Found"}
-
-    # HARDENING: siempre archivar la notificación cruda (auditoría)
-    tx.raw_notification = raw_text
-    tx.gateway = "payu"
-    tx.currency = currency or "COP"
-    tx.response_code = response_code
-    db.add(tx)
-
-    if tx.status == "approved":
-        db.commit()
-        return {"message": "Already Approved"}
-
-    if state == "4": # APROBADO
-        tx.status = "approved"
-        tx.cus = cus
-        tx.description = f"Recarga PSE Aprobada (CUS: {cus})"
-        
-        # ACTUALIZAR SALDO
-        if tx.card:
-            tx.card.balance += float(value)
-            db.add(tx.card)
-            db.commit()
-            print(f"✅ SALDO ACTUALIZADO: Tarjeta {tx.card.uid} +${value}")
-        else:
-            db.commit()
-            print("ERROR: Transacción no tiene tarjeta asociada")
-    else:
-        tx.status = "declined"
-        tx.description = f"Recarga PSE no aprobada. Estado PayU: {state}"
-        db.commit()
-        print(f"❌ TRANSACCIÓN RECHAZADA: Ref {reference}")
-
-    return {"message": "OK"}
 
 @router.get("/status/{reference_code}")
-def get_recharge_status(reference_code: str, db: Session = Depends(get_db)):
-    """Consultar el estado de una recarga específica en nuestra DB"""
-    tx = db.query(Transaction).filter(Transaction.reference_code == reference_code).first()
-    if not tx:
-        raise HTTPException(status_code=404, detail="Transacción no encontrada")
-    
-    return {
-        "status": tx.status, # pending, approved, declined
-        "amount": tx.amount,
-        "timestamp": tx.timestamp
-    }
-
-@router.post("/simulate-pse", response_model=RechargeResponse)
-def simulate_pse_recharge(
-    recharge: RechargeCreate,
+def get_recharge_status(
+    reference_code: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user)
+    current_user: User = Depends(deps.get_current_active_user),
 ):
-    """
-    Simula una transacción aprobada por PSE.
-    Validaciones:
-    - Admin: Puede recargar cualquiera.
-    - Empleado: Solo su propia tarjeta.
-    - Padre: Solo tarjetas de sus hijos.
-    """
-    
-    # 1. Obtener la tarjeta para validar permisos
-    card = crud_card.get_card_by_uid(db, uid=recharge.card_uid)
-    if not card:
-        raise HTTPException(status_code=404, detail="Tarjeta no encontrada")
-
-    # 2. Validar Permisos
-    is_authorized = False
-
-    if current_user.role == UserRole.ADMIN:
-        is_authorized = True
-    
-    elif current_user.role == UserRole.EMPLEADO:
-        # Verificar si la tarjeta es del empleado
-        if card.user_id == current_user.id:
-            is_authorized = True
-            
-    elif current_user.role == UserRole.PADRE:
-        # Verificar si la tarjeta pertenece a un estudiante de este padre
-        if card.student and card.student.parent_id == current_user.id:
-            is_authorized = True
-
-    if not is_authorized:
-        raise HTTPException(
-            status_code=403, 
-            detail="No tienes permiso para recargar esta tarjeta."
-        )
-
-    # 3. Procesar Recarga
-    return crud_transaction.recharge_card(db=db, recharge=recharge)
+    return get_payment_status(db, current_user, reference_code)

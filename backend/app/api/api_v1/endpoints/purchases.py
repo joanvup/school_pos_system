@@ -33,4 +33,4 @@ def cancel_order(
     current_user: User = Depends(deps.get_current_active_admin)
 ):
     """Anular orden (Resta Stock si es posible)"""
-    return crud_purchase.cancel_purchase_order(db, order_id)
+    return crud_purchase.cancel_purchase_order(db, order_id, actor_id=current_user.id)

@@ -5,9 +5,9 @@
 # 1. Detecta el servicio systemd y la ruta real del backend.
 # 2. Actualiza el código (git pull).
 # 3. Garantiza bcrypt==4.0.1 (compatible con passlib 1.7.4).
-# 4. Reinicia el servicio.
-# 5. Verifica/ejecuta la migración automática de pending_balance.
-# 6. (Opcional) Prueba el login vía API.
+# 4. Aplica migraciones Alembic (alembic upgrade head).
+# 5. Reinicia el servicio y revisa los logs.
+# 6. (Opcional) Prueba el health check y el login vía API.
 #
 # USO:
 #   ./fix_deploy.sh                             # autodetecta todo
@@ -144,7 +144,19 @@ else
 fi
 
 # ------------------------------------------------------------------
-info "3/6 Reiniciando el servicio ($SERVICE_NAME)..."
+info "3/6 Aplicando migraciones de base de datos..."
+if [ -n "$PYTHON_BIN" ] && "$PYTHON_BIN" -c "import alembic" >/dev/null 2>&1; then
+    "$PYTHON_BIN" -m alembic upgrade head \
+        && ok "  Esquema al día (alembic upgrade head)." \
+        || { err "  Falló 'alembic upgrade head'. NO se reinicia el servicio."; exit 1; }
+else
+    err "  No encontré alembic con $PYTHON_BIN."
+    err "  Instala dependencias: $PYTHON_BIN -m pip install -r requirements.txt"
+    exit 1
+fi
+
+# ------------------------------------------------------------------
+info "4/6 Reiniciando el servicio ($SERVICE_NAME)..."
 restart_service() {
     case "$SERVICE_TYPE" in
         systemd) sudo systemctl restart "$SERVICE_NAME" ;;
@@ -175,47 +187,6 @@ if [ -n "$SERVICE_NAME" ] && has systemctl; then
 fi
 
 # ------------------------------------------------------------------
-info "4/6 Verificando migración de pending_balance..."
-get_db_creds() {
-    if [ ! -f "$BACKEND_DIR/.env" ]; then return 1; fi
-    DBURL=$(grep -E '^DATABASE_URL=' "$BACKEND_DIR/.env" | head -n1 | cut -d= -f2- | tr -d '"')
-    [ -z "$DBURL" ] && return 1
-    TMP="${DBURL#*://}"                              # quita mysql+pymysql://
-    DB_USER="${TMP%%:*}"
-    TMP="${TMP#*:}"
-    DB_PASS="${TMP%%@*}"
-    TMP="${TMP#*@}"
-    DB_NAME="${TMP##*/}"
-    return 0
-}
-
-MIGROK="no"
-if get_db_creds && has mysql; then
-    count=$(mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" -N -e \
-        "SELECT COUNT(*) FROM information_schema.columns WHERE table_name IN ('students','users') AND column_name='pending_balance';" 2>/dev/null || echo "0")
-    if [ "$count" = "2" ]; then
-        ok "  Columnas pending_balance presentes en $DB_NAME."
-        MIGROK="si"
-    else
-        info "  Ejecutando ALTER (respaldo del auto-migrador del backend)..."
-        mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" -e \
-            "ALTER TABLE students ADD COLUMN pending_balance FLOAT NOT NULL DEFAULT 0; ALTER TABLE users ADD COLUMN pending_balance FLOAT NOT NULL DEFAULT 0;" \
-            && { ok "  Migración aplicada."; MIGROK="si"; } \
-            || warn "  Falló el ALTER (revisa permisos del usuario de BD)."
-    fi
-else
-    warn "  No pude leer DATABASE_URL o no hay cliente mysql."
-fi
-
-if [ "$MIGROK" != "si" ]; then
-    warn "  IMPORTANTE: revisa los logs del backend, debe aparecer:"
-    warn "    [MIGRACION] Ejecutando: ALTER TABLE ..."
-    warn "  o ejecuta manual en la BD:"
-    warn "    ALTER TABLE students ADD COLUMN pending_balance FLOAT NOT NULL DEFAULT 0;"
-    warn "    ALTER TABLE users   ADD COLUMN pending_balance FLOAT NOT NULL DEFAULT 0;"
-fi
-
-# ------------------------------------------------------------------
 info "5/6 Revisando logs del arranque..."
 if [ -n "$SERVICE_NAME" ] && has journalctl; then
     journalctl -u "$SERVICE_NAME" --since "2 minutes ago" --no-pager 2>/dev/null | tail -n 30 || true
@@ -224,7 +195,14 @@ else
 fi
 
 # ------------------------------------------------------------------
-info "6/6 Verificación del login..."
+info "6/6 Verificación del health check y del login..."
+if [ -n "$DOMAIN" ]; then
+    HEALTH=$(curl -s -o /dev/null -w "%{http_code}" "$DOMAIN/health" 2>/dev/null || echo "000")
+    [ "$HEALTH" = "200" ] && ok "  Health check OK (200)." || warn "  Health check devolvió HTTP $HEALTH."
+else
+    warn "  Define DOMAIN para probar /health automáticamente."
+fi
+
 if [ -n "$DOMAIN" ] && [ -n "$LOGIN_EMAIL" ]; then
     RESP=$(curl -s -o /tmp/login_check.json -w "%{http_code}" \
         -X POST "$DOMAIN/api/v1/auth/login/access-token" \

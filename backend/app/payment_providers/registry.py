@@ -24,7 +24,10 @@ def get_active_provider(db: Session):
     """Provider activo según la tabla; cae siempre a PayU como seguro."""
     active = (
         db.query(PaymentGatewaySetting)
-        .filter(PaymentGatewaySetting.is_active.is_(True))
+        .filter(
+            PaymentGatewaySetting.is_active.is_(True),
+            PaymentGatewaySetting.gateway == "payu",
+        )
         .first()
     )
     name = active.gateway if active else "payu"

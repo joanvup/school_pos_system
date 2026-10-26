@@ -14,16 +14,19 @@ router = APIRouter()
 def create_sale(
     sale_in: SaleCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user) # Vendedores pueden vender
+    current_user: User = Depends(deps.get_current_active_staff) # Vendedores pueden vender
 ):
     """
     Registrar una nueva venta (Cobro con tarjeta RFID).
     Requiere tarjeta activa y saldo suficiente.
     """
-    return crud_sale.process_sale(db=db, sale_in=sale_in)
+    return crud_sale.process_sale(db=db, sale_in=sale_in, actor_id=current_user.id)
 
 @router.get("/recent", response_model=List[dict])
-def get_recent_sales(db: Session = Depends(get_db)):
+def get_recent_sales(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_staff),
+):
     """Obtiene las últimas 5 ventas para el POS"""
     sales = db.query(Transaction).filter(Transaction.type == TransactionType.PURCHASE)\
               .order_by(Transaction.timestamp.desc()).limit(5).all()
@@ -45,6 +48,10 @@ def get_recent_sales(db: Session = Depends(get_db)):
     return result
 
 @router.post("/reverse/{transaction_id}")
-def void_sale(transaction_id: int, db: Session = Depends(get_db), current_user: User = Depends(deps.get_current_active_admin)):
+def void_sale(
+    transaction_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_admin),
+):
     """Solo Admins pueden reversar"""
-    return crud_sale.reverse_sale(db, transaction_id)
+    return crud_sale.reverse_sale(db, transaction_id, actor_id=current_user.id)

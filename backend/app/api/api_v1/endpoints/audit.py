@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.api import deps
@@ -21,11 +21,22 @@ def audit_card(
 @router.post("/fix-balance/{card_id}")
 def apply_fix(
     card_id: int,
-    payload: dict, # { "new_balance": float }
+    payload: dict, # { "new_balance": float, "reason": "..." }
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_admin)
 ):
-    success = crud_audit.update_to_correct_balance(db, card_id, payload['new_balance'])
+    try:
+        success = crud_audit.update_to_correct_balance(
+            db,
+            card_id,
+            payload.get("new_balance"),
+            payload.get("reason"),
+            actor_id=current_user.id,
+            ip=request.client.host if request.client else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     if not success:
-        raise HTTPException(status_code=400, detail="No se pudo actualizar")
+        raise HTTPException(status_code=404, detail="Tarjeta no encontrada")
     return {"message": "Saldo corregido exitosamente"}

@@ -46,7 +46,7 @@ def create_product(db: Session, product: ProductCreate):
     return db_product
 
 def update_product(db: Session, db_product: Product, product_in: ProductUpdate):
-    update_data = product_in.dict(exclude_unset=True)
+    update_data = product_in.model_dump(exclude_unset=True)
     for field in update_data:
         setattr(db_product, field, update_data[field])
     

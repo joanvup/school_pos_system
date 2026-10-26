@@ -2,12 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.api import deps
-from app.core.config import settings
 from app.crud import crud_payment_gateway
 from app.db.session import get_db
-from app.models.card import Card
 from app.models.user import User, UserRole
-from app.payment_providers.registry import get_active_provider, get_provider
+from app.payment_providers.registry import get_active_provider
 from app.schemas.payment import (
     ActivateProvider,
     InitPayment,
@@ -15,8 +13,16 @@ from app.schemas.payment import (
     PaymentMethodInfo,
     PaymentsMethodsResponse,
 )
+from app.services.payment_service import (
+    require_rechargeable_card,
+    get_payment_status,
+    process_payu_notification,
+    start_payu_payment,
+)
 
 router = APIRouter()
+
+MAX_WEBHOOK_BYTES = 16 * 1024
 
 
 def _require_admin(user: User):
@@ -52,7 +58,7 @@ def activate_payment_provider(
     _require_admin(current_user)
     row = crud_payment_gateway.set_active_provider(db, payload.gateway)
     if not row:
-        raise HTTPException(status_code=404, detail="Pasarela no encontrada")
+        raise HTTPException(status_code=404, detail="Pasarela no soportada")
     return {"detail": f"Pasarela activa: {row.label}"}
 
 
@@ -63,17 +69,12 @@ def get_payment_methods(
 ):
     crud_payment_gateway.seed_gateway_settings(db)
     provider = get_active_provider(db)
-    from app.models.payment_gateway_settings import PaymentGatewaySetting
-    active_row = (
-        db.query(PaymentGatewaySetting)
-        .filter(PaymentGatewaySetting.is_active.is_(True))
-        .first()
-    )
+    rows = crud_payment_gateway.list_providers(db)
     return PaymentsMethodsResponse(
         gateway=provider.name,
-        label=active_row.label if active_row else provider.name,
+        label="PayU PSE",
         methods=[PaymentMethodInfo(id=m.id, label=m.label) for m in provider.get_methods()],
-        is_test=active_row.is_test if active_row else True,
+        is_test=rows[0].is_test if rows else True,
     )
 
 
@@ -85,31 +86,27 @@ def init_payment(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     crud_payment_gateway.seed_gateway_settings(db)
-    provider = get_active_provider(db)
+    get_active_provider(db)
 
-    card = db.query(Card).filter(Card.uid == payload.card_uid).first()
-    if not card:
-        raise HTTPException(status_code=404, detail="Tarjeta no existe")
+    card = require_rechargeable_card(db, payload.card_uid, current_user)
 
-    scheme = request.headers.get("x-forwarded-proto", "https")
-    host = request.headers.get("host")
-    base_url = f"{scheme}://{host}"
-    return_url = payload.reference or f"{base_url}/"
-
-    data = {
-        "card_id": card.id,
-        "card_uid": card.uid,
-        "amount": payload.amount,
-        "method": payload.method,
-        "buyer_name": payload.buyer_name or current_user.full_name,
-        "buyer_email": payload.buyer_email,
-        "buyer_dni": payload.buyer_dni,
-        "bank_code": payload.bank_code,
-        "client_ip": request.headers.get("X-Real-IP") or request.client.host,
-        "user_agent": request.headers.get("User-Agent") or "Unknown",
-    }
-
-    result = provider.init_recharge(db, data, {"base_url": base_url, "return_url": return_url})
+    result = start_payu_payment(
+        db=db,
+        card=card,
+        amount=payload.amount,
+        buyer={
+            "buyer_name": payload.buyer_name or current_user.full_name,
+            "buyer_email": payload.buyer_email or current_user.email,
+            "buyer_dni": payload.buyer_dni,
+            "bank_code": payload.bank_code,
+            "phone": "",
+            "address": "",
+            "user_type": "0",
+            "buyer_dni_type": "CC",
+        },
+        client_ip=request.headers.get("X-Real-IP") or (request.client.host if request.client else "0.0.0.0"),
+        user_agent=request.headers.get("User-Agent") or "Unknown",
+    )
     return InitPaymentResponse(
         redirect_url=result.redirect_url,
         qr_content=result.qr_content,
@@ -118,37 +115,51 @@ def init_payment(
     )
 
 
-@router.post("/notify/{gateway}")
-async def notify_payment(gateway: str, request: Request, db: Session = Depends(get_db)):
-    provider = get_provider(gateway)
-    if not provider:
-        raise HTTPException(status_code=404, detail="Pasarela no registrada")
+async def handle_payu_notification_request(request: Request, db: Session) -> dict:
+    raw = await request.body()
+    if len(raw) > MAX_WEBHOOK_BYTES:
+        raise HTTPException(status_code=413, detail="Notificación demasiado grande")
 
     content_type = request.headers.get("content-type", "").lower()
     if "application/json" in content_type:
         try:
             form_data = await request.json()
         except Exception:
-            form_data = {}
+            raise HTTPException(status_code=400, detail="JSON inválido")
     else:
         try:
             form_data = dict(await request.form())
         except Exception:
-            form_data = {}
+            raise HTTPException(status_code=400, detail="Formulario inválido")
 
-    return provider.handle_notification(db, form_data)
+    if not isinstance(form_data, dict) or not form_data:
+        raise HTTPException(status_code=400, detail="Notificación vacía")
+
+    return process_payu_notification(
+        db,
+        form_data,
+        raw_text=raw.decode("utf-8", errors="replace"),
+        remote_ip=request.client.host if request.client else None,
+    )
+
+
+@router.post("/notify/payu")
+async def notify_payu(request: Request, db: Session = Depends(get_db)):
+    """Webhook canónico de PayU. Debe estar configurado en el dashboard."""
+    return await handle_payu_notification_request(request, db)
+
+
+@router.post("/notify/{gateway}")
+async def notify_payment(gateway: str, request: Request, db: Session = Depends(get_db)):
+    if gateway != "payu":
+        raise HTTPException(status_code=404, detail="Pasarela no registrada")
+    return await handle_payu_notification_request(request, db)
 
 
 @router.get("/status/{reference}")
-def get_payment_status(reference: str, db: Session = Depends(get_db)):
-    from app.models.card import Transaction
-
-    tx = db.query(Transaction).filter(Transaction.reference_code == reference).first()
-    if not tx:
-        raise HTTPException(status_code=404, detail="Transacción no encontrada")
-    return {
-        "reference": tx.reference_code,
-        "status": tx.status,
-        "amount": tx.amount,
-        "gateway": tx.gateway,
-    }
+def get_payment_status_endpoint(
+    reference: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    return get_payment_status(db, current_user, reference)

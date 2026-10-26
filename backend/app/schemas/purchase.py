@@ -1,14 +1,27 @@
-from pydantic import BaseModel
-from typing import List
 from datetime import datetime
+from decimal import Decimal
+
+from pydantic import BaseModel, Field
+
 
 class OrderDetailCreate(BaseModel):
+    product_id: int = Field(gt=0)
+    quantity: int = Field(gt=0, le=10000)
+    unit_cost: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+
+
+class PurchaseOrderCreate(BaseModel):
+    items: list[OrderDetailCreate] = Field(min_length=1, max_length=200)
+
+
+class OrderDetailResponse(BaseModel):
     product_id: int
     quantity: int
     unit_cost: float
 
-class PurchaseOrderCreate(BaseModel):
-    items: List[OrderDetailCreate]
+    class Config:
+        from_attributes = True
+
 
 class PurchaseOrderResponse(BaseModel):
     id: int
@@ -16,7 +29,7 @@ class PurchaseOrderResponse(BaseModel):
     timestamp: datetime
     status: str
     total_cost: float
-    items: List[OrderDetailCreate] = []
+    items: list[OrderDetailResponse] = []
 
     class Config:
         from_attributes = True

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from sqlalchemy.orm import Session, joinedload
 from app.models.card import Card, CardStatus
 from app.schemas.card import CardCreate, CardUpdate
@@ -24,7 +26,7 @@ def create_card(db: Session, card: CardCreate):
         uid=clean_uid,
         student_id=card.student_id,
         user_id=card.user_id,
-        balance=0.0, # Saldo inicial siempre 0
+        balance=Decimal("0.00"), # Saldo inicial siempre 0
         status=CardStatus.ACTIVE,
         daily_limit=card.daily_limit
     )
@@ -34,7 +36,7 @@ def create_card(db: Session, card: CardCreate):
     return db_card
 
 def update_card(db: Session, db_card: Card, card_in: CardUpdate):
-    update_data = card_in.dict(exclude_unset=True)
+    update_data = card_in.model_dump(exclude_unset=True)
     if "uid" in update_data and update_data["uid"]:
         update_data["uid"] = normalize_card_uid(update_data["uid"])
         
@@ -60,11 +62,17 @@ def replace_card_uid(db: Session, current_card: Card, new_uid: str, actor_id: in
     
     # 2. Actualizar el UID
     current_card.uid = clean_new_uid
-    current_card.status = "active" # La activamos automáticamente al ser nueva
+    current_card.status = CardStatus.ACTIVE # La activamos automáticamente al ser nueva
     
     # 3. Registrar en Auditoría
     details = f"Reemplazo de tarjeta NFC. Antigua: {old_uid} -> Nueva: {clean_new_uid}. Saldo preservado: {current_card.balance}"
-    audit = AuditLog(user_id=actor_id, action="REPLACE_CARD", details=details)
+    audit = AuditLog(
+        user_id=actor_id,
+        action="REPLACE_CARD",
+        entity="card",
+        entity_id=current_card.id,
+        details=details,
+    )
     
     db.add(audit)
     db.commit()
@@ -89,8 +97,10 @@ def unlink_card(db: Session, card: Card, actor_id: int):
 
     # El saldo sigue a la persona, no al plástico
     if person is not None:
-        person.pending_balance = (person.pending_balance or 0.0) + (card.balance or 0.0)
-        card.balance = 0.0
+        person.pending_balance = (
+            person.pending_balance or Decimal("0.00")
+        ) + (card.balance or Decimal("0.00"))
+        card.balance = Decimal("0.00")
         db.add(person)
 
     card.student_id = None
@@ -99,7 +109,13 @@ def unlink_card(db: Session, card: Card, actor_id: int):
 
     # Registrar en Auditoría
     details = f"Desvinculación de tarjeta NFC UID {card.uid}. Dueño anterior: {owner or 'Desconocido'}. Saldo transferido a su saldo pendiente: {person.pending_balance if person else 0}"
-    audit = AuditLog(user_id=actor_id, action="UNLINK_CARD", details=details)
+    audit = AuditLog(
+        user_id=actor_id,
+        action="UNLINK_CARD",
+        entity="card",
+        entity_id=card.id,
+        details=details,
+    )
 
     db.add(audit)
     db.commit()
@@ -113,10 +129,10 @@ def apply_pending_balance(db: Session, db_card: Card, person):
     """
     if person is None:
         return db_card
-    pending = getattr(person, "pending_balance", None) or 0.0
+    pending = getattr(person, "pending_balance", None) or Decimal("0.00")
     if pending:
-        db_card.balance = (db_card.balance or 0.0) + pending
-        person.pending_balance = 0.0
+        db_card.balance = (db_card.balance or Decimal("0.00")) + pending
+        person.pending_balance = Decimal("0.00")
         db.add(person)
     db.add(db_card)
     db.commit()
@@ -144,7 +160,13 @@ def relink_card(db: Session, db_card: Card, student_id, user_id, daily_limit, ac
 
     # Registrar en Auditoría
     details = f"Re-vinculación de tarjeta NFC UID {db_card.uid} a {owner or 'Desconocido'}. Saldo conservado: {db_card.balance}"
-    audit = AuditLog(user_id=actor_id, action="LINK_CARD", details=details)
+    audit = AuditLog(
+        user_id=actor_id,
+        action="LINK_CARD",
+        entity="card",
+        entity_id=db_card.id,
+        details=details,
+    )
 
     db.add(audit)
     db.commit()

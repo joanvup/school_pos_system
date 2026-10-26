@@ -1,6 +1,17 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey
+from decimal import Decimal
+
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+)
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship # Importante
+from sqlalchemy.orm import relationship
 from app.db.session import Base
 
 class Product(Base):
@@ -13,9 +24,9 @@ class Product(Base):
     # CAMBIO: Ahora es un ID apuntando a la tabla categories
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
     
-    price = Column(Float, nullable=False)
-    cost = Column(Float, nullable=False)
-    stock = Column(Integer, default=0)
+    price = Column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
+    cost = Column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
+    stock = Column(Integer, nullable=False, default=0)
     low_stock_threshold = Column(Integer, default=5)
     image_url = Column(String(255))
     is_active = Column(Boolean, default=True)
@@ -23,3 +34,13 @@ class Product(Base):
 
     # Relación para traer el nombre de la categoría automáticamente
     category_rel = relationship("Category", back_populates="products")
+
+    __table_args__ = (
+        CheckConstraint("price >= 0", name="ck_products_price_non_negative"),
+        CheckConstraint("cost >= 0", name="ck_products_cost_non_negative"),
+        CheckConstraint("stock >= 0", name="ck_products_stock_non_negative"),
+        CheckConstraint(
+            "low_stock_threshold >= 0",
+            name="ck_products_low_stock_threshold_non_negative",
+        ),
+    )

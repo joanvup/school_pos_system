@@ -1,101 +1,92 @@
-from fastapi import FastAPI
+import hmac
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
-from app.db.session import engine
-from app.db.base import Base
+
 from app.api.api_v1.api import api_router
 from app.core.config import settings
-from fastapi.staticfiles import StaticFiles # Importar
-from app.db.session import SessionLocal
-from app.crud import crud_payment_gateway
-import os
+from app.db.session import engine
 
-# Migraciones de columnas idempotentes.
-# create_all() NO agrega columnas a tablas existentes, por eso revisamos
-# information_schema y ejecutamos el ALTER solo si la columna no existe.
-MIGRATIONS = [
-    ("students", "ADD COLUMN pending_balance FLOAT NOT NULL DEFAULT 0"),
-    ("users", "ADD COLUMN pending_balance FLOAT NOT NULL DEFAULT 0"),
-    ("transactions", "ADD COLUMN gateway VARCHAR(30) DEFAULT 'payu'"),
-    ("transactions", "ADD COLUMN currency VARCHAR(10) DEFAULT 'COP'"),
-    ("transactions", "ADD COLUMN raw_notification TEXT"),
-    ("transactions", "ADD COLUMN response_code VARCHAR(100)"),
-]
+BASE_DIR = Path(__file__).resolve().parent
+UPLOAD_DIR = BASE_DIR / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-def _column_exists(table: str, column: str) -> bool:
-    with engine.connect() as conn:
-        result = conn.execute(
-            text(
-                "SELECT COUNT(*) FROM information_schema.columns "
-                "WHERE table_schema = DATABASE() AND table_name = :t AND column_name = :c"
-            ),
-            {"t": table, "c": column},
-        )
-        return result.scalar() > 0
-
-def run_safe_migrations():
-    for table, column_ddl in MIGRATIONS:
-        column = column_ddl.replace("ADD COLUMN ", "").split(" ")[0]
-        if _column_exists(table, column):
-            continue
-        sql = f"ALTER TABLE {table} {column_ddl}"
-        print(f"[MIGRACION] Ejecutando: {sql}")
-        try:
-            with engine.begin() as conn:
-                conn.execute(text(sql))
-        except Exception as e:
-            # Si el usuario de BD no tiene permisos, avisamos claramente y dejamos
-            # el SQL que debe ejecutarse manualmente para no romper el arranque.
-            print(f"[MIGRACION][ERROR] No se pudo ejecutar '{sql}': {e}")
-            print(f"[MIGRACION][MANUAL] Ejecuta manualmente en la BD: {sql}")
-
-# Crear tablas
-Base.metadata.create_all(bind=engine)
-
-# Aplicar migraciones pendientes
-run_safe_migrations()
-
-# Sembrar la tabla de pasarelas de pago (PayU activa por defecto)
-def seed_gateways():
-    try:
-        with SessionLocal() as db:
-            crud_payment_gateway.seed_gateway_settings(db)
-    except Exception as e:
-        print(f"[SEED] No se pudo sembrar pasarelas: {e}")
-
-seed_gateways()
+IS_PRODUCTION = settings.ENVIRONMENT.lower() == "production"
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version="1.0.0",
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else f"{settings.API_V1_STR}/openapi.json",
 )
 
-# Procesamos la cadena del .env para convertirla en una lista de Python
-if settings.ALLOWED_ORIGINS == "*":
+CSRF_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+CSRF_EXEMPT_PATHS = {
+    f"{settings.API_V1_STR}/auth/login/access-token",
+    f"{settings.API_V1_STR}/auth/logout",
+    f"{settings.API_V1_STR}/auth/password-recovery",
+    f"{settings.API_V1_STR}/auth/reset-password",
+}
+
+
+@app.middleware("http")
+async def csrf_protection(request: Request, call_next):
+    """Double-submit CSRF solo cuando la sesión viaja en cookie."""
+    uses_cookie_session = settings.AUTH_COOKIE_NAME in request.cookies
+    if (
+        uses_cookie_session
+        and request.method in CSRF_UNSAFE_METHODS
+        and request.url.path not in CSRF_EXEMPT_PATHS
+    ):
+        cookie_token = request.cookies.get(settings.CSRF_COOKIE_NAME, "")
+        header_token = request.headers.get(settings.CSRF_HEADER_NAME, "")
+        if (
+            not cookie_token
+            or not header_token
+            or not hmac.compare_digest(cookie_token, header_token)
+        ):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Token CSRF inválido o ausente"},
+            )
+    return await call_next(request)
+
+
+raw_origins = [origin.strip() for origin in settings.ALLOWED_ORIGINS.split(",") if origin.strip()]
+# Con cookies el wildcard es inválido: si hay orígenes explícitos se descarta "*"; si solo hay "*", sin credenciales.
+origins = [origin for origin in raw_origins if origin != "*"]
+allow_credentials = bool(origins)
+if not origins and "*" in raw_origins:
     origins = ["*"]
-else:
-    # Si en el .env pusiste: https://dominio.com,http://localhost:5173
-    # esto lo convertirá en ['https://dominio.com', 'http://localhost:5173']
-    origins = [origin.strip() for origin in settings.ALLOWED_ORIGINS.split(",")]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
-# Crear carpeta si no existe
-if not os.path.exists("uploads"):
-    os.makedirs("uploads")
-# Montar la carpeta para que las imágenes sean accesibles vía URL
-# Ejemplo: http://localhost:8000/uploads/imagen.jpg
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+
 
 @app.get("/")
 def read_root():
-    return {"message": "School POS System API is secure and running"}
+    return {"message": "School POS System API is running"}
+
+
+@app.get("/health")
+def health():
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception:
+        raise HTTPException(status_code=503, detail="Base de datos no disponible")
+    return {"status": "ok"}

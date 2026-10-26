@@ -1,9 +1,8 @@
 from pydantic import BaseModel
-from typing import Optional
+
 
 class Token(BaseModel):
     access_token: str
     token_type: str
-
-class TokenPayload(BaseModel):
-    sub: Optional[str] = None # El 'subject' del token (usaremos el email)
+    expires_in: int
+    must_change_password: bool = False

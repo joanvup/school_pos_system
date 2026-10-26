@@ -1,4 +1,4 @@
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, validate_password
 from app.models.user import User, Student, UserRole
 import pandas as pd
 from sqlalchemy.orm import Session 
@@ -6,6 +6,15 @@ import io
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+
+
+def _row_password(row, column: str, required: bool) -> str | None:
+    """Lee y valida una contraseña de la fila. None si no viene y no es obligatoria."""
+    if column not in row or pd.isna(row[column]) or not str(row[column]).strip():
+        if required:
+            raise ValueError(f"La columna '{column}' es obligatoria para usuarios nuevos")
+        return None
+    return validate_password(str(row[column]).strip())
 
 def generate_students_template() -> io.BytesIO:
     wb = openpyxl.Workbook()
@@ -21,8 +30,8 @@ def generate_students_template() -> io.BytesIO:
     ]
 
     sample_data = [
-        ["padre1@ejemplo.com", "Carlos Perez", "Juan Perez", "10-A", "123456"],
-        ["padre1@ejemplo.com", "Carlos Perez", "Maria Perez", "6-B", "123456"],
+        ["padre1@ejemplo.com", "Carlos Perez", "Juan Perez", "10-A", "Padre2026Seguro"],
+        ["padre1@ejemplo.com", "Carlos Perez", "Maria Perez", "6-B", "Padre2026Seguro"],
         ["padre2@ejemplo.com", "Ana Gomez", "Santiago Gomez", "11-C", "claveSegura123"],
     ]
 
@@ -75,9 +84,9 @@ def generate_employees_template() -> io.BytesIO:
     ]
 
     sample_data = [
-        ["docente1@colegio.edu.co", "Roberto Gomez", "empleado123"],
+        ["docente1@colegio.edu.co", "Roberto Gomez", "Empleado2026"],
         ["staff1@colegio.edu.co", "Laura Martinez", "claveSegura2026"],
-        ["mantenimiento1@colegio.edu.co", "Pedro Sanchez", "empleado123"],
+        ["mantenimiento1@colegio.edu.co", "Pedro Sanchez", "Empleado2026"],
     ]
 
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
@@ -140,17 +149,22 @@ def process_students_file(file_content, db: Session, task_id: str, progress_dict
             # 1. GESTIÓN DEL PADRE
             parent = db.query(User).filter(User.email == email).first()
             if parent:
+                if parent.role != UserRole.PADRE:
+                    raise ValueError("El correo pertenece a un usuario que no es padre")
                 # ACTUALIZAR PADRE
                 parent.full_name = parent_name
-                if "parent_password" in row and pd.notnull(row["parent_password"]):
-                    parent.hashed_password = get_password_hash(str(row["parent_password"]))
+                new_password = _row_password(row, "parent_password", required=False)
+                if new_password:
+                    parent.hashed_password = get_password_hash(new_password)
+                    parent.must_change_password = True
                 res["updated"] += 0.5 # Marcamos media actualización (padre)
             else:
                 # CREAR PADRE
-                pwd = str(row.get("parent_password", "123456"))
+                pwd = _row_password(row, "parent_password", required=True)
                 parent = User(
-                    email=email, full_name=parent_name, 
-                    hashed_password=get_password_hash(pwd), role=UserRole.PADRE
+                    email=email, full_name=parent_name,
+                    hashed_password=get_password_hash(pwd), role=UserRole.PADRE,
+                    must_change_password=True,
                 )
                 db.add(parent)
                 db.flush()
@@ -202,17 +216,22 @@ def process_employees_file(file_content, db: Session, task_id: str, progress_dic
             
             user = db.query(User).filter(User.email == email).first()
             if user:
-                # ACTUALIZAR EMPLEADO
+                if user.role != UserRole.EMPLEADO:
+                    raise ValueError("El correo pertenece a un usuario que no es empleado")
+                # ACTUALIZAR EMPLEADO (nunca rol ni contraseña sin valor explícito)
                 user.full_name = full_name
-                if "password" in row and pd.notnull(row["password"]):
-                    user.hashed_password = get_password_hash(str(row["password"]))
+                new_password = _row_password(row, "password", required=False)
+                if new_password:
+                    user.hashed_password = get_password_hash(new_password)
+                    user.must_change_password = True
                 res["updated"] += 1
             else:
                 # CREAR EMPLEADO
-                pwd = str(row.get("password", "empleado123"))
+                pwd = _row_password(row, "password", required=True)
                 new_user = User(
                     email=email, full_name=full_name, role=UserRole.EMPLEADO,
-                    hashed_password=get_password_hash(pwd)
+                    hashed_password=get_password_hash(pwd),
+                    must_change_password=True,
                 )
                 db.add(new_user)
                 res["created"] += 1

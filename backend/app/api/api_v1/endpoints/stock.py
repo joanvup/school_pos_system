@@ -16,8 +16,8 @@ def make_adjustment(
     return crud_stock.create_adjustment(
         db, 
         user_id=current_user.id, 
-        reason=payload['reason'], 
-        items=payload['items']
+        reason=payload.get("reason"), 
+        items=payload.get("items")
     )
 
 @router.get("/")

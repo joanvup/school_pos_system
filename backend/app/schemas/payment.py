@@ -1,6 +1,7 @@
+from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProviderInfo(BaseModel):
@@ -28,14 +29,13 @@ class PaymentsMethodsResponse(BaseModel):
 
 
 class InitPayment(BaseModel):
-    card_uid: str
-    amount: float
-    method: str = "pse"
-    buyer_name: str = ""
-    buyer_email: str = ""
-    buyer_dni: str = ""
-    bank_code: str = ""
-    reference: Optional[str] = None
+    card_uid: str = Field(min_length=1, max_length=50)
+    amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    method: str = Field(default="pse", min_length=1, max_length=20)
+    buyer_name: str = Field(default="", max_length=150)
+    buyer_email: str = Field(default="", max_length=150)
+    buyer_dni: str = Field(default="", max_length=30)
+    bank_code: str = Field(default="", max_length=20)
 
 
 class InitPaymentResponse(BaseModel):

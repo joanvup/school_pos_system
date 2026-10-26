@@ -1,18 +1,18 @@
-from pydantic import BaseModel
-from typing import List, Optional
 from datetime import datetime
 
-# Un item dentro del carrito de compras
+from pydantic import BaseModel, Field
+
+
 class SaleItem(BaseModel):
-    product_id: int
-    quantity: int
+    product_id: int = Field(gt=0)
+    quantity: int = Field(gt=0, le=100)
 
-# La petición de venta completa
+
 class SaleCreate(BaseModel):
-    card_uid: str
-    items: List[SaleItem]
+    card_uid: str = Field(min_length=1, max_length=50)
+    items: list[SaleItem] = Field(min_length=1, max_length=50)
 
-# Respuesta de la venta (Ticket digital)
+
 class SaleResponse(BaseModel):
     transaction_id: int
     total_amount: float

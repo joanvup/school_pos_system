@@ -11,9 +11,14 @@ from app.models.user import User
 router = APIRouter()
 
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def create_user(user: UserCreate, db: Session = Depends(get_db)):
+def create_user(
+    user: UserCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_admin),
+):
     """
     Crear un nuevo usuario (Admin, Padre, Empleado, etc).
+    Solo un administrador autenticado puede crear usuarios.
     """
     # 1. Validar si existe
     db_user = crud_user.get_user_by_email(db, email=user.email)
@@ -53,8 +58,15 @@ def update_user_admin(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    
-    user = crud_user.update_user(db, db_user=user, user_in=user_in)
+
+    # Si un admin resetea la clave de otra persona, debe cambiarla al entrar.
+    force_change = bool(user_in.password) and user.id != current_user.id
+    user = crud_user.update_user(
+        db,
+        db_user=user,
+        user_in=user_in,
+        force_password_change=force_change,
+    )
     return user
 
 @router.get("/me", response_model=UserResponse)

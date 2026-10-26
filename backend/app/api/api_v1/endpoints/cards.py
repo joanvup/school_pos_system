@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from typing import Any
 
 from app.db.session import get_db
-from app.schemas.card import CardCreate, CardResponse, CardUpdate
+from app.schemas.card import CardCreate, CardResponse, CardUpdate, CardStatus
 from app.crud import crud_card, crud_student, crud_audit
 from app.api import deps
+from app.core.permissions import can_manage_cards, owns_card
 from app.models.user import User
 
 from typing import List, Optional
@@ -118,77 +119,87 @@ def assign_card(
     person = student if card.student_id else (user if card.user_id else None)
     return crud_card.apply_pending_balance(db, db_card, person)
 
-@router.get("/check/{uid}") # Quitamos response_model temporalmente para enviar un dict personalizado
+@router.get("/check/{uid}")
 def check_card_status(
     uid: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_staff),
 ):
     card = crud_card.get_card_by_uid(db, uid=uid)
     if not card:
         raise HTTPException(status_code=404, detail="Tarjeta no encontrada")
-    
-    # Construimos la respuesta a mano para el POS
-    # Esto es 100% seguro y evita cualquier bucle de Pydantic
+
     owner_name = "Desconocido"
     owner_type = "N/A"
-    
+
     if card.student:
         owner_name = card.student.full_name
-        owner_type = f"Estudiante - {card.student.grade}"
+        owner_type = "Estudiante"
     elif card.employee:
         owner_name = card.employee.full_name
         owner_type = "Personal Staff"
 
     return {
         "uid": card.uid,
-        "balance": card.balance,
-        "status": card.status,
+        "balance": float(card.balance),
+        "status": card.status.value if hasattr(card.status, "value") else card.status,
         "owner_name": owner_name,
-        "owner_type": owner_type
+        "owner_type": owner_type,
     }
 
 @router.put("/{uid}", response_model=CardResponse)
 def update_card_status(
     uid: str,
     card_in: CardUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user)
 ):
     """
     Bloquear/Desbloquear tarjeta o cambiar límite diario.
+
+    Admin/supervisor: cualquier campo.
+    Dueño (padre o empleado): solo puede bloquear su propia tarjeta.
     """
     card = crud_card.get_card_by_uid(db, uid=uid)
     if not card:
         raise HTTPException(status_code=404, detail="Tarjeta no encontrada.")
 
-    # --- LÓGICA DE PERMISOS CORREGIDA ---
-    is_authorized = False
+    can_manage = can_manage_cards(current_user)
+    is_owner = owns_card(current_user, card)
 
-    # 1. Es Admin
-    if current_user.role == "admin":
-        is_authorized = True
-    
-    # 2. Es MI tarjeta (Caso Empleado)
-    elif card.user_id == current_user.id:
-        is_authorized = True
-        
-    # 3. Es la tarjeta de MI hijo (Caso Padre)
-    elif card.student and card.student.parent_id == current_user.id:
-        is_authorized = True
+    if not can_manage and not is_owner:
+        raise HTTPException(status_code=403, detail="No tienes permiso sobre esta tarjeta.")
 
-    if not is_authorized:
-         raise HTTPException(status_code=403, detail="No tienes permiso sobre esta tarjeta.")
-    # ------------------------------------
+    updates = card_in.model_dump(exclude_unset=True)
 
-    # --- INYECCIÓN DE AUDITORÍA (Mantenemos lo que ya tenías) ---
-    details = f"Cambio de estado: {card.status} -> {card_in.status if card_in.status else 'Sin cambio'}. " 
+    if not can_manage:
+        if "daily_limit" in updates:
+            raise HTTPException(
+                status_code=403,
+                detail="Solo un administrador puede cambiar el límite diario.",
+            )
+        if updates.get("status") not in (None, CardStatus.BLOCKED):
+            raise HTTPException(
+                status_code=403,
+                detail="Solo un administrador puede desbloquear la tarjeta.",
+            )
+
+    details = (
+        f"Tarjeta UID {card.uid}. "
+        f"Estado: {card.status} -> {updates.get('status', 'sin cambio')}. "
+        f"Límite: {updates.get('daily_limit', 'sin cambio')}."
+    )
     crud_audit.log_action(
         db=db,
         user_id=current_user.id,
         action="UPDATE_CARD",
-        details=f"Tarjeta UID {uid}. {details}"
+        entity="card",
+        entity_id=card.id,
+        details=details,
+        ip=request.client.host if request.client else None,
+        commit=False,
     )
-    # -----------------------------------------------------------
 
     return crud_card.update_card(db, db_card=card, card_in=card_in)
 
@@ -237,7 +248,12 @@ def replace_card(
     current_user: User = Depends(deps.get_current_admin_or_supervisor)
 ):
     # 1. Buscar la tarjeta actual
-    card = db.query(Card).filter(Card.uid == payload['old_uid']).first()
+    old_uid = crud_card.normalize_card_uid(payload.get("old_uid", ""))
+    new_uid = crud_card.normalize_card_uid(payload.get("new_uid", ""))
+    if not old_uid or not new_uid:
+        raise HTTPException(status_code=400, detail="old_uid y new_uid son obligatorios")
+
+    card = db.query(Card).filter(Card.uid == old_uid).first()
     if not card:
         raise HTTPException(status_code=404, detail="La tarjeta original no existe.")
 
@@ -245,7 +261,7 @@ def replace_card(
     updated_card, error = crud_card.replace_card_uid(
         db, 
         current_card=card, 
-        new_uid=payload['new_uid'], 
+        new_uid=new_uid, 
         actor_id=current_user.id
     )
 
