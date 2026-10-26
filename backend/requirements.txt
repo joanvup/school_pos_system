@@ -19,6 +19,8 @@ Pillow==13.0.0
 # Lector NFC local (Windows). En Linux el backend no los necesita.
 pyscard>=2.0.0; sys_platform == "win32"
 pystray>=0.19.5; sys_platform == "win32"
+# Solo para compilar dist/ACR122U_NFC.exe (scripts/build_nfc_exe.ps1).
+pyinstaller==6.22.3; sys_platform == "win32"
 
 # Pruebas
 pytest==9.0.3
