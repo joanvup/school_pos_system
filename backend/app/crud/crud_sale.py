@@ -50,6 +50,7 @@ def process_sale(db: Session, sale_in, actor_id: int):
         card = (
             db.query(Card)
             .filter(Card.uid == clean_uid)
+            .populate_existing()
             .with_for_update()
             .first()
         )
@@ -70,6 +71,7 @@ def process_sale(db: Session, sale_in, actor_id: int):
             db.query(Product)
             .filter(Product.id.in_(ordered_ids))
             .order_by(Product.id)
+            .populate_existing()
             .with_for_update()
             .all()
         )
@@ -182,12 +184,14 @@ def reverse_sale(db: Session, transaction_id: int, actor_id: int):
         card = (
             db.query(Card)
             .filter(Card.id == tx.card_id)
+            .populate_existing()
             .with_for_update()
             .first()
         )
         tx = (
             db.query(Transaction)
             .filter(Transaction.id == transaction_id)
+            .populate_existing()
             .with_for_update()
             .first()
         )
@@ -208,6 +212,7 @@ def reverse_sale(db: Session, transaction_id: int, actor_id: int):
             db.query(Product)
             .filter(Product.id.in_(product_ids))
             .order_by(Product.id)
+            .populate_existing()
             .with_for_update()
             .all()
             if product_ids

@@ -66,7 +66,7 @@ def _seed(Session, balance, stock, price, actor_role=UserRole.VENDEDOR):
         session.flush()
 
         card = Card(
-            uid="UID-CONCURRENCY",
+            uid="UIDCONCURRENCY",
             balance=balance,
             status=CardStatus.ACTIVE,
             student_id=student.id,
